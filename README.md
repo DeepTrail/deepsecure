@@ -46,4 +46,3 @@ DeepAuth supports various authentication flows:
 ## License
 
 MIT
-'''
