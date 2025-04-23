@@ -1,5 +1,6 @@
 '''Main CLI application entry point.'''
 import typer
+import importlib.metadata
 
 from .commands import (
     vault,
@@ -36,8 +37,11 @@ app.add_typer(ide.app, name="ide")
 @app.command("version")
 def version():
     """Show CLI version."""
-    # TODO: Load version dynamically from pyproject.toml
-    print("DeepSecure CLI version: 0.0.1 (placeholder)")
+    try:
+        version = importlib.metadata.version("deepsecure-cli")
+        print(f"DeepSecure CLI version: {version}")
+    except importlib.metadata.PackageNotFoundError:
+        print("DeepSecure CLI version: 0.0.1 (development)")
 
 @app.command("login")
 def login(
