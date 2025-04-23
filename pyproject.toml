@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepsecure-cli"
+version = "0.0.1"
+authors = [
+  { name="DeepSecure Team", email="info@example.com" }, # TODO: Update author details
+]
+description = "DeepSecure CLI: Secure AI Development Control Plane"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License", # TODO: Choose appropriate license
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "typer[all]>=0.9.0",    # CLI framework with rich support
+    "rich>=13.0.0",         # Rich terminal output
+    "keyring>=24.0.0",      # Secure credential storage
+    "requests>=2.30.0",     # HTTP client for API calls
+    "toml>=0.10.2",         # TOML config file parsing
+    "pydantic>=2.0.0",      # Data validation
+]
+
+[project.urls]
+"Homepage" = "https://github.com/yourusername/deepsecure-cli" # TODO: Update URL
+"Bug Tracker" = "https://github.com/yourusername/deepsecure-cli/issues" # TODO: Update URL
+
+[project.scripts]
+deepsecure = "deepsecure.main:app"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["deepsecure*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"] 
