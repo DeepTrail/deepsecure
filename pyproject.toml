@@ -1,21 +1,32 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "deepsecure-cli"
 version = "0.0.1"
 authors = [
-  { name="DeepSecure Team", email="info@example.com" }, # TODO: Update author details
+  { name="DeepSecure Team", email="info@deepsecure.dev" },
 ]
 description = "DeepSecure CLI: Secure AI Development Control Plane"
 readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License", # TODO: Choose appropriate license
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+keywords = ["security", "ai", "cli", "credentials", "vault", "policy", "sandbox"]
 dependencies = [
     "typer[all]>=0.9.0",    # CLI framework with rich support
     "rich>=13.0.0",         # Rich terminal output
@@ -25,9 +36,21 @@ dependencies = [
     "pydantic>=2.0.0",      # Data validation
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0",
+    "isort>=5.0.0",
+    "flake8>=6.0.0",
+    "build>=0.10.0",
+    "twine>=4.0.0",
+]
+
 [project.urls]
-"Homepage" = "https://github.com/yourusername/deepsecure-cli" # TODO: Update URL
-"Bug Tracker" = "https://github.com/yourusername/deepsecure-cli/issues" # TODO: Update URL
+"Homepage" = "https://github.com/deepsecure/deepsecure-cli"
+"Bug Tracker" = "https://github.com/deepsecure/deepsecure-cli/issues"
+"Documentation" = "https://deepsecure.dev/docs"
 
 [project.scripts]
 deepsecure = "deepsecure.main:app"
@@ -38,6 +61,22 @@ package-dir = {"" = "."}
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["deepsecure*"]
+exclude = ["tests*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"] 
+testpaths = ["tests"]
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true 
