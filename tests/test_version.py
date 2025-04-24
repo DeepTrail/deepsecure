@@ -15,7 +15,7 @@ def test_version_command():
             expected_output = f"DeepSecure CLI version: {expected_version}"
         except importlib.metadata.PackageNotFoundError:
             # For development/testing when package isn't installed
-            expected_output = "DeepSecure CLI version: 0.0.1 (development)"
+            expected_output = "DeepSecure CLI version: 0.0.2 (development)"
         
         # Call the version function
         version()

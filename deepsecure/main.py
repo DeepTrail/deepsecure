@@ -41,7 +41,7 @@ def version():
         version = importlib.metadata.version("deepsecure-cli")
         print(f"DeepSecure CLI version: {version}")
     except importlib.metadata.PackageNotFoundError:
-        print("DeepSecure CLI version: 0.0.1 (development)")
+        print("DeepSecure CLI version: 0.0.2 (development)")
 
 @app.command("login")
 def login(
