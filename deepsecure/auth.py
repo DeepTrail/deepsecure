@@ -1,35 +1,85 @@
-'''Authentication handling for DeepSecure CLI.'''
+'''Authentication utility for DeepSecure CLI.'''
 
-# TODO: Implement token storage using 'keyring' library
-# TODO: Implement login flow to acquire token from backend
-# TODO: Implement token retrieval for API clients
+import os
+import json
+import sys
+import typer
+from typing import Optional
+from pathlib import Path
 
-SERVICE_NAME = "deepsecure-cli"
+from . import utils
 
-def store_token(token: str):
-    # Placeholder implementation
-    print(f"Storing token securely... (placeholder for {SERVICE_NAME})")
-    # keyring.set_password(SERVICE_NAME, "api_token", token)
-    pass
+# Path to store local credentials/tokens
+AUTH_DIR = os.path.expanduser("~/.deepsecure/auth")
+TOKEN_FILE = os.path.join(AUTH_DIR, "token.json")
 
-def get_token() -> str | None:
-    # Placeholder implementation
-    print(f"Retrieving token... (placeholder for {SERVICE_NAME})")
-    # return keyring.get_password(SERVICE_NAME, "api_token")
-    return "dummy-token-abc123" # Placeholder
+def get_token() -> Optional[str]:
+    """
+    Get the current authentication token.
+    
+    Returns:
+        The token string if available, None otherwise
+    """
+    # Check environment variable first
+    token = os.environ.get("DEEPSECURE_API_TOKEN")
+    if token:
+        return token
+    
+    # Fall back to the token file
+    if os.path.exists(TOKEN_FILE):
+        try:
+            with open(TOKEN_FILE, 'r') as f:
+                token_data = json.load(f)
+                return token_data.get("token")
+        except (json.JSONDecodeError, IOError):
+            return None
+    
+    return None
 
-def clear_token():
-    # Placeholder implementation
-    print(f"Clearing stored token... (placeholder for {SERVICE_NAME})")
-    # try:
-    #     keyring.delete_password(SERVICE_NAME, "api_token")
-    # except keyring.errors.PasswordDeleteError:
-    #     pass
-    pass
+def store_token(token: str) -> None:
+    """
+    Store an API token.
+    
+    Args:
+        token: The token to store
+    """
+    # Create the auth directory if it doesn't exist
+    os.makedirs(AUTH_DIR, exist_ok=True)
+    
+    # Store the token
+    token_data = {"token": token}
+    with open(TOKEN_FILE, 'w') as f:
+        json.dump(token_data, f)
+    
+    # Set permissions to restrict access
+    os.chmod(TOKEN_FILE, 0o600)
+    
+def clear_token() -> None:
+    """Remove the stored token."""
+    if os.path.exists(TOKEN_FILE):
+        os.remove(TOKEN_FILE)
 
-def ensure_authenticated():
+def ensure_authenticated() -> str:
+    """
+    Ensure the user is authenticated and a token is available.
+    If not, prompt the user to authenticate.
+    
+    Returns:
+        The authentication token
+        
+    Raises:
+        typer.Exit: If authentication fails
+    """
     token = get_token()
+    
     if not token:
-        print("Error: Not authenticated. Please run 'deepsecure login' first.")
-        # raise NotAuthenticatedError() # Or similar
-        exit(1) # Or raise custom exception 
+        utils.console.print("[yellow]Not authenticated. Please run 'deepsecure login' first.[/]")
+        if not typer.confirm("Do you want to login now?"):
+            utils.print_error("Authentication required to proceed.", exit_code=1)
+        
+        # For development/testing, we'll use a dummy token
+        token = f"dummy-token-{utils.generate_id(8)}"
+        store_token(token)
+        utils.print_success("Successfully authenticated")
+    
+    return token 
