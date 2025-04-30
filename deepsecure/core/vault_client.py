@@ -483,55 +483,76 @@ class VaultClient(base_client.BaseClient):
         # AND the local list was updated (or already contained the ID).
         return backend_success or local_only
     
-    def rotate_credential(self, credential_type: str, config_path: Optional[str] = None, local_only: bool = False) -> Dict[str, Any]:
-        """
-        Rotate a long-lived credential.
+    def rotate_credential(self, agent_id: str, credential_type: str, local_only: bool = False) -> Dict[str, Any]:
+        """Rotate a long-lived credential (placeholder).
 
+        Intended to rotate the agent's identity key (Ed25519).
         If `local_only` is True, performs rotation locally (placeholder).
         If `local_only` is False (default), attempts backend rotation (placeholder).
         Currently, only local placeholder logic exists.
 
         Args:
+            agent_id: The identifier of the agent whose identity should be rotated.
             credential_type: The type of credential to rotate (e.g., "agent-identity").
-            config_path: Optional path to a configuration file (usage TBD).
             local_only: If True, force local-only placeholder rotation.
 
         Returns:
             A dictionary with placeholder details about the rotation.
-        """
-        if not local_only:
-            # --- Backend Rotation Attempt (Placeholder) --- #
-            # TODO: Implement backend rotation logic.
-            print(f"[DEBUG] (Placeholder) Would attempt backend rotation for type={credential_type}")
-            try:
-                # response = self._request("POST", "/rotate", data={"type": credential_type, ...})
-                # return response["data"] # Assuming backend returns rotation details
-                # Simulate a failure for now to fall back to local
-                raise exceptions.ApiError("Backend rotation not implemented")
-            except exceptions.ApiError as e:
-                print(f"[Warning] Backend rotation failed: {e}. Falling back to local rotation (placeholder).", file=sys.stderr)
-                pass # Continue with local placeholder
-            # If backend succeeded in the future, we would return here.
-            # return backend_rotation_details
 
-        # --- Local Rotation Logic (Placeholder) --- #
-        print(f"[DEBUG] Performing local rotation (placeholder) for type={credential_type}, config_path={config_path}")
-        # TODO: Define and implement actual local rotation logic, 
-        #       likely for the agent's long-term identity key stored locally.
-        #       This would involve calling key_manager.generate_identity_keypair()
-        #       and updating the stored identity file in ~/.deepsecure/identities/
+        Raises:
+            NotImplementedError: If the type is not 'agent-identity' (when implemented).
+            VaultError: If identity file operations fail (when implemented).
+            ApiError: If backend communication fails (when implemented).
+        """
+        if credential_type != "agent-identity":
+            # This check is also in the command, but good to have defense-in-depth
+            raise NotImplementedError(f"Rotation for type '{credential_type}' is not implemented.")
+
+        # --- Backend Rotation Attempt (Placeholder) --- #
+        backend_success = False
+        if not local_only:
+            # TODO: Implement backend rotation logic.
+            # Requires finding the agent's current public key to identify it to the backend?
+            print(f"[DEBUG] (Placeholder) Would attempt backend rotation for agent={agent_id}")
+            # Simulate backend success for now
+            backend_success = True
+            # if not backend_api.rotate(agent_id, ...):
+            #     print(f"[Error] Backend rotation failed for agent {agent_id}", file=sys.stderr)
+            #     # Decide on fallback behavior
+            # else:
+            #     backend_success = True
+
+        # --- Local Rotation (Placeholder) --- #
+        # TODO: Implement actual local rotation:
+        # 1. Find identity file: self.identity_store_path / f"{agent_id}.json"
+        # 2. Check if file exists.
+        # 3. Generate new Ed25519 keys using self.key_manager.generate_identity_keypair()
+        # 4. Read the existing identity file.
+        # 5. Update the private_key and public_key fields.
+        # 6. Add/update a 'rotated_at' timestamp.
+        # 7. Write the updated identity back to the file.
+        # 8. Handle potential backup of the old key.
+        # 9. Log the rotation event using self.audit_logger.log_credential_rotation(...)
         
-        # Placeholder response
-        new_id_ref = f"rotated-{credential_type}-{uuid.uuid4()}" # Placeholder ID/Ref
+        print(f"[DEBUG] (Placeholder) Simulating local rotation for agent={agent_id}")
+        
+        # Placeholder result
+        new_id = f"key-{uuid.uuid4()}" # Placeholder for new key identifier/reference
         rotation_time = int(time.time())
         
-        # TODO: Log rotation event via audit_logger
-        # self.audit_logger.log_credential_rotation(rotated_id=new_id_ref, type=credential_type)
+        # Log the placeholder event
+        self.audit_logger.log_credential_rotation(
+            agent_id=agent_id, 
+            credential_type=credential_type, 
+            new_credential_ref=new_id, # Pass placeholder ref
+            rotated_by="local_user" # Placeholder user
+        )
         
         return {
-            "id": new_id_ref, 
-            "type": credential_type,
-            "rotated_at": rotation_time
+            "id": new_id,
+            "rotated_at": rotation_time,
+            "agent_id": agent_id, # Include agent_id for context
+            "status": "Simulated rotation complete (placeholder)"
         }
 
     # --- Local Verification --- #
