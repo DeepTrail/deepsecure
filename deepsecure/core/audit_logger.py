@@ -128,6 +128,24 @@ class AuditLogger:
             # TODO: Add reason for revocation if available.
         })
 
+    def log_credential_rotation(self, agent_id: str, credential_type: str, 
+                               new_credential_ref: str, rotated_by: str) -> None:
+        """Log a specific event for credential rotation.
+
+        Args:
+            agent_id: The ID of the agent whose credential/key was rotated.
+            credential_type: The type of credential rotated (e.g., 'agent-identity').
+            new_credential_ref: A reference to the new credential/key 
+                                (e.g., new key ID, certificate serial).
+            rotated_by: Identifier for the entity initiating the rotation.
+        """
+        self.log_event("credential_rotate", {
+            "agent_id": agent_id,
+            "credential_type": credential_type,
+            "new_credential_ref": new_credential_ref,
+            "rotated_by": rotated_by
+        })
+
 # Singleton instance for easy global access.
 # Consider using dependency injection in larger applications.
 audit_logger = AuditLogger() 
