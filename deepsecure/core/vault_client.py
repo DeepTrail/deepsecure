@@ -6,37 +6,98 @@ import os
 import json
 import uuid
 import hashlib
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Set
 from datetime import datetime, timedelta
 import re
 import sys
+from pathlib import Path
 
 from . import base_client
 from .crypto.key_manager import key_manager
 from .audit_logger import audit_logger
 from .. import exceptions
 
+# --- Constants for Local State --- #
+DEEPSECURE_DIR = Path(os.path.expanduser("~/.deepsecure"))
+IDENTITY_STORE_PATH = DEEPSECURE_DIR / "identities"
+DEVICE_ID_FILE = DEEPSECURE_DIR / "device_id"
+REVOCATION_LIST_FILE = DEEPSECURE_DIR / "revoked_creds.json"
+
 class VaultClient(base_client.BaseClient):
     """Client for interacting with the Vault API for credential management.
 
     Handles agent identity management (local file-based for now), ephemeral
-    key generation, credential signing, origin context capture, and interaction
-    with the audit logger and cryptographic key manager.
+    key generation, credential signing, origin context capture, interaction
+    with the audit logger and cryptographic key manager, and local credential
+    revocation and verification.
     """
     
     def __init__(self):
         """Initialize the Vault client.
 
         Sets up the service name for the base client, initializes dependencies
-        like the key manager and audit logger, and ensures the local identity
-        storage directory exists.
+        like the key manager and audit logger, ensures local storage directories
+        exist, and loads the local revocation list.
         """
         super().__init__("vault")
         self.key_manager = key_manager
         self.audit_logger = audit_logger
-        # TODO: Replace simple file-based identity storage with a more secure mechanism.
-        self.identity_store_path = os.path.expanduser("~/.deepsecure/identities")
-        os.makedirs(self.identity_store_path, exist_ok=True)
+        self.identity_store_path = IDENTITY_STORE_PATH
+        self.revocation_list_file = REVOCATION_LIST_FILE
+        
+        # Ensure directories exist
+        DEEPSECURE_DIR.mkdir(exist_ok=True)
+        self.identity_store_path.mkdir(exist_ok=True)
+        
+        # Load local revocation list
+        self._revoked_ids: Set[str] = self._load_revocation_list()
+    
+    # --- Revocation List Management --- #
+    
+    def _load_revocation_list(self) -> Set[str]:
+        """Loads the set of revoked credential IDs from the local file."""
+        if not self.revocation_list_file.exists():
+            return set()
+        try:
+            with open(self.revocation_list_file, 'r') as f:
+                # Load as list, convert to set for efficient lookup
+                revoked_list = json.load(f)
+                if isinstance(revoked_list, list):
+                    return set(revoked_list)
+                else:
+                    print(f"[Warning] Revocation file {self.revocation_list_file} has invalid format. Ignoring.", file=sys.stderr)
+                    return set() # Corrupted file
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"[Warning] Failed to load revocation list {self.revocation_list_file}: {e}", file=sys.stderr)
+            return set()
+
+    def _save_revocation_list(self) -> None:
+        """Saves the current set of revoked credential IDs to the local file."""
+        try:
+            with open(self.revocation_list_file, 'w') as f:
+                # Save as a list for standard JSON format
+                json.dump(list(self._revoked_ids), f, indent=2)
+            self.revocation_list_file.chmod(0o600) # Set permissions
+        except IOError as e:
+            # Non-fatal error, but log it
+            print(f"[Warning] Failed to save revocation list {self.revocation_list_file}: {e}", file=sys.stderr)
+            # TODO: Improve error handling/logging here.
+
+    def is_revoked(self, credential_id: str) -> bool:
+        """Checks if a credential ID is in the local revocation list.
+        
+        Args:
+            credential_id: The ID to check.
+            
+        Returns:
+            True if the credential ID has been revoked locally, False otherwise.
+        """
+        # Refresh the list in case another process updated it?
+        # For simplicity now, we rely on the list loaded at init.
+        # self._revoked_ids = self._load_revocation_list()
+        return credential_id in self._revoked_ids
+        
+    # --- Identity and Context Management (mostly unchanged) --- #
     
     def _get_agent_identity(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -59,9 +120,9 @@ class VaultClient(base_client.BaseClient):
             agent_id = f"agent-{uuid.uuid4()}"
         
         # Check if we have this identity stored
-        identity_file = os.path.join(self.identity_store_path, f"{agent_id}.json")
+        identity_file = self.identity_store_path / f"{agent_id}.json"
         
-        if os.path.exists(identity_file):
+        if identity_file.exists():
             # Load existing identity
             try:
                 with open(identity_file, 'r') as f:
@@ -84,7 +145,7 @@ class VaultClient(base_client.BaseClient):
             try:
                 with open(identity_file, 'w') as f:
                     json.dump(identity, f)
-                os.chmod(identity_file, 0o600) # Restrict permissions
+                identity_file.chmod(0o600) # Restrict permissions
             except IOError as e:
                 raise exceptions.VaultError(f"Failed to save identity for {agent_id}: {e}") from e
         
@@ -134,9 +195,9 @@ class VaultClient(base_client.BaseClient):
             A string representing the device identifier (UUID).
         """
         # TODO: Replace simple file-based device ID with a more robust hardware-based identifier.
-        device_id_file = os.path.expanduser("~/.deepsecure/device_id")
+        device_id_file = DEVICE_ID_FILE
         
-        if os.path.exists(device_id_file):
+        if device_id_file.exists():
             try:
                 with open(device_id_file, 'r') as f:
                     device_id = f.read().strip()
@@ -150,10 +211,10 @@ class VaultClient(base_client.BaseClient):
         # Create a new device ID if file doesn't exist or is invalid
         device_id = str(uuid.uuid4())
         try:
-            os.makedirs(os.path.dirname(device_id_file), exist_ok=True)
+            device_id_file.parent.mkdir(parents=True, exist_ok=True)
             with open(device_id_file, 'w') as f:
                 f.write(device_id)
-            os.chmod(device_id_file, 0o600) # Restrict permissions
+            device_id_file.chmod(0o600) # Restrict permissions
         except IOError as e:
             # If we can't store it persistently, use a temporary one for this session
             print(f"[Warning] Failed to store persistent device ID: {e}", file=sys.stderr)
@@ -268,33 +329,54 @@ class VaultClient(base_client.BaseClient):
         
         return credential
     
+    # --- Core Credential Operations --- #
+    
     def issue_credential(self, scope: str, ttl: str, agent_id: Optional[str] = None,
                         origin_context: Optional[Dict[str, Any]] = None,
-                        origin_binding: bool = True) -> Dict[str, Any]:
+                        origin_binding: bool = True,
+                        local_only: bool = False) -> Dict[str, Any]:
         """
-        Issue an ephemeral credential, optionally binding it to the origin context.
+        Issue an ephemeral credential.
 
-        This is the main method for credential issuance. It coordinates getting agent
-        identity, capturing origin context (if needed), generating keys, signing,
-        calculating expiry, creating the final credential structure, and logging.
+        If `local_only` is True, performs all generation and signing locally.
+        If `local_only` is False (default), attempts to issue via the backend (placeholder).
 
         Args:
             scope: Scope of access (e.g., 'db:readonly', 'api:full').
             ttl: Time-to-live for the credential (e.g., '5m', '1h').
             agent_id: Optional agent identifier. If None, a new identity is created.
-            origin_context: Optional pre-captured origin context. If None and origin_binding
-                            is True, context will be captured automatically.
-            origin_binding: If True, capture origin context and include it in the process
-                            (intended to be part of the signature eventually).
+            origin_context: Optional pre-captured origin context.
+            origin_binding: If True, capture/use origin context.
+            local_only: If True, force local generation even if backend exists.
 
         Returns:
             A dictionary representing the issued credential, including the ephemeral
-            private key (which should NOT be stored or transmitted long-term).
+            private key.
 
         Raises:
             ValueError: If the TTL format is invalid.
             VaultError: If identity loading/saving fails.
+            ApiError: If backend communication fails (when implemented).
         """
+        if not local_only:
+            # --- Backend Issuance Attempt (Placeholder) --- #
+            # TODO: Implement backend issuance logic.
+            print(f"[DEBUG] (Placeholder) Would attempt backend issuance for scope={scope}, ttl={ttl}")
+            try:
+                # response = self._request("POST", "/issue", data={"scope": scope, ...})
+                # return response["data"] # Assuming backend returns the credential dict
+                # Simulate a failure for now to fall back to local
+                raise exceptions.ApiError("Backend issuance not implemented")
+            except exceptions.ApiError as e:
+                # TODO: Decide on fallback behavior. For now, fall back to local if backend fails.
+                print(f"[Warning] Backend issuance failed: {e}. Falling back to local issuance.", file=sys.stderr)
+                pass # Continue with local issuance
+            # If backend succeeded in the future, we would return here.
+            # return backend_credential 
+
+        # --- Local Issuance Flow --- #
+        # print("[Debug] Performing local credential issuance.", file=sys.stderr) # Removed this line causing test failures
+        
         # 1. Get or create agent identity
         agent_identity = self._get_agent_identity(agent_id)
         
@@ -308,11 +390,6 @@ class VaultClient(base_client.BaseClient):
         
         # 4. Sign the ephemeral public key (with Ed25519 identity key)
         # TODO: Implement actual context-bound signing as planned.
-        # Currently, it signs only the key regardless of origin_binding flag,
-        # although the context is captured and included in the token.
-        # The _create_context_bound_message helper exists but isn't used for signing.
-        # signature_payload = self._create_context_bound_message(...) if origin_binding else base64.b64decode(ephemeral_keys["public_key"])
-        # signature = self.key_manager.sign(signature_payload, agent_identity["private_key"]) 
         signature = self.key_manager.sign_ephemeral_key(
             ephemeral_keys["public_key"], 
             agent_identity["private_key"]
@@ -328,13 +405,10 @@ class VaultClient(base_client.BaseClient):
             signature,
             scope,
             expiry,
-            captured_context # Pass the captured context (empty if origin_binding=False)
+            captured_context 
         )
         
-        # Add ephemeral private key to the returned credential for immediate use by the caller.
-        # WARNING: This private key should be handled securely by the caller and
-        #          discarded after establishing the secure channel. It MUST NOT be stored
-        #          persistently with the credential token itself.
+        # Add ephemeral private key
         credential["ephemeral_private_key"] = ephemeral_keys["private_key"]
         
         # 7. Log the issuance event
@@ -347,56 +421,197 @@ class VaultClient(base_client.BaseClient):
         
         return credential
     
-    def revoke_credential(self, credential_id: str) -> bool:
+    def revoke_credential(self, credential_id: str, local_only: bool = False) -> bool:
         """
-        Revoke a credential by its ID.
+        Revoke a credential.
 
-        Currently, this is a placeholder. In a real implementation, it would
-        interact with a backend service (e.g., an API endpoint or a revocation list)
-        to mark the credential as invalid.
+        If `local_only` is True, only adds the ID to the local revocation list.
+        If `local_only` is False (default), it attempts backend revocation (placeholder)
+        AND updates the local list.
 
         Args:
             credential_id: The ID of the credential to revoke.
+            local_only: If True, skip backend interaction attempt.
 
         Returns:
-            True if the (placeholder) revocation was successful, False otherwise.
+            True if the credential was successfully added to the local list or
+            if the backend call succeeded (in the future), False otherwise.
         """
-        # TODO: Implement actual revocation logic (e.g., call backend API).
-        # This requires a backend system to track issued credentials.
-        print(f"[DEBUG] Would revoke credential with id={credential_id}")
-        
-        # Log the revocation event
-        # TODO: Determine the actual source of revocation (e.g., user ID from context).
-        self.audit_logger.log_credential_revocation(
-            credential_id=credential_id,
-            revoked_by="user" # Placeholder
-        )
-        
-        return True # Placeholder success
-    
-    def rotate_credential(self, credential_type: str, config_path: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Rotate a long-lived credential (Placeholder).
+        if not credential_id:
+            print("[Warning] Attempted to revoke an empty credential ID.", file=sys.stderr)
+            return False
 
-        This functionality is not fully defined or implemented for ephemeral credentials.
-        It might apply to rotating the agent's long-term identity key.
+        # --- Backend Revocation Attempt (Placeholder) --- # 
+        backend_success = False
+        if not local_only:
+            # TODO: Implement actual backend revocation logic (e.g., call backend API).
+            # This requires a backend system to track issued credentials.
+            print(f"[DEBUG] (Placeholder) Would attempt backend revocation for id={credential_id}")
+            # Simulate backend success for now if not local_only
+            backend_success = True 
+            # In a real implementation, check the actual result from the backend API call.
+            # if not backend_api.revoke(credential_id):
+            #     print(f"[Error] Backend revocation failed for {credential_id}", file=sys.stderr)
+            #     # Decide if failure to revoke on backend should prevent local revocation
+            #     # return False # Option 1: Fail entirely
+            # else:
+            #     backend_success = True
+
+        # --- Local Revocation --- #
+        local_update_needed = True
+        if credential_id in self._revoked_ids:
+            print(f"[Info] Credential {credential_id} is already revoked locally.", file=sys.stderr)
+            local_update_needed = False # No need to add again
+            # Even if already revoked locally, log the attempt again for audit trail
+            self.audit_logger.log_credential_revocation(credential_id=credential_id, revoked_by="local_user") # Placeholder user
+            # If backend succeeded OR we only care about local, return True
+            return backend_success or local_only
+
+        if local_update_needed:
+            self._revoked_ids.add(credential_id)
+            self._save_revocation_list()
+            # print(f"[Debug] Credential {credential_id} added to local revocation list.", file=sys.stderr)
+
+        # Log the event (only once if added locally)
+        if local_update_needed:
+             self.audit_logger.log_credential_revocation(
+                credential_id=credential_id,
+                revoked_by="local_user" # Placeholder for actual user context
+            )
+
+        # Return True if the backend call succeeded (if attempted) OR if it was local_only
+        # AND the local list was updated (or already contained the ID).
+        return backend_success or local_only
+    
+    def rotate_credential(self, credential_type: str, config_path: Optional[str] = None, local_only: bool = False) -> Dict[str, Any]:
+        """
+        Rotate a long-lived credential.
+
+        If `local_only` is True, performs rotation locally (placeholder).
+        If `local_only` is False (default), attempts backend rotation (placeholder).
+        Currently, only local placeholder logic exists.
 
         Args:
-            credential_type: The type of credential to rotate.
-            config_path: Optional path to a configuration file containing the credential.
+            credential_type: The type of credential to rotate (e.g., "agent-identity").
+            config_path: Optional path to a configuration file (usage TBD).
+            local_only: If True, force local-only placeholder rotation.
 
         Returns:
             A dictionary with placeholder details about the rotation.
         """
-        # TODO: Define and implement credential rotation, likely for the agent's long-term identity key.
-        print(f"[DEBUG] Would rotate credential of type={credential_type}, config_path={config_path}")
+        if not local_only:
+            # --- Backend Rotation Attempt (Placeholder) --- #
+            # TODO: Implement backend rotation logic.
+            print(f"[DEBUG] (Placeholder) Would attempt backend rotation for type={credential_type}")
+            try:
+                # response = self._request("POST", "/rotate", data={"type": credential_type, ...})
+                # return response["data"] # Assuming backend returns rotation details
+                # Simulate a failure for now to fall back to local
+                raise exceptions.ApiError("Backend rotation not implemented")
+            except exceptions.ApiError as e:
+                print(f"[Warning] Backend rotation failed: {e}. Falling back to local rotation (placeholder).", file=sys.stderr)
+                pass # Continue with local placeholder
+            # If backend succeeded in the future, we would return here.
+            # return backend_rotation_details
+
+        # --- Local Rotation Logic (Placeholder) --- #
+        print(f"[DEBUG] Performing local rotation (placeholder) for type={credential_type}, config_path={config_path}")
+        # TODO: Define and implement actual local rotation logic, 
+        #       likely for the agent's long-term identity key stored locally.
+        #       This would involve calling key_manager.generate_identity_keypair()
+        #       and updating the stored identity file in ~/.deepsecure/identities/
         
         # Placeholder response
+        new_id_ref = f"rotated-{credential_type}-{uuid.uuid4()}" # Placeholder ID/Ref
+        rotation_time = int(time.time())
+        
+        # TODO: Log rotation event via audit_logger
+        # self.audit_logger.log_credential_rotation(rotated_id=new_id_ref, type=credential_type)
+        
         return {
-            "id": f"cred-{uuid.uuid4()}", # Placeholder ID
+            "id": new_id_ref, 
             "type": credential_type,
-            "rotated_at": int(time.time())
+            "rotated_at": rotation_time
         }
+
+    # --- Local Verification --- #
+
+    def verify_local_credential(self, credential: Dict[str, Any]) -> bool:
+        """Verifies a credential locally against stored identity and revocation list.
+        
+        Performs checks for:
+        - Signature validity against the agent's known public key.
+        - Expiration time.
+        - Presence in the local revocation list.
+        - Origin context match (if origin binding was used).
+        
+        Args:
+            credential: The full credential dictionary (as returned by issue_credential,
+                        minus the ephemeral_private_key).
+        
+        Returns:
+            True if the credential is valid locally, False otherwise.
+            
+        Raises:
+            VaultError: If the agent identity cannot be found or loaded.
+            ValueError: If the credential format is invalid.
+        """
+        if not all(k in credential for k in ["id", "agent_id", "ephemeral_public_key", "signature", "expires_at"]):
+            raise ValueError("Credential dictionary is missing required fields.")
+
+        cred_id = credential["id"]
+        agent_id = credential["agent_id"]
+        ephemeral_pub_key = credential["ephemeral_public_key"]
+        signature = credential["signature"]
+        expires_at = credential["expires_at"]
+        origin_context_issued = credential.get("origin_context", {})
+
+        # 1. Check Revocation List
+        if self.is_revoked(cred_id):
+            print(f"[Verification Failed] Credential {cred_id} is revoked.", file=sys.stderr)
+            return False
+
+        # 2. Check Expiry
+        if time.time() > expires_at:
+            print(f"[Verification Failed] Credential {cred_id} has expired.", file=sys.stderr)
+            return False
+
+        # 3. Get Agent Identity Public Key
+        try:
+            agent_identity = self._get_agent_identity(agent_id)
+            identity_public_key = agent_identity["public_key"]
+        except exceptions.VaultError as e:
+            print(f"[Verification Failed] Could not load identity for agent {agent_id}: {e}", file=sys.stderr)
+            return False # Cannot verify signature without public key
+
+        # 4. Verify Signature
+        # TODO: Adapt if/when context-bound signing is fully implemented
+        #       Need to reconstruct the exact message that was signed.
+        is_signature_valid = self.key_manager.verify_signature(
+            ephemeral_public_key=ephemeral_pub_key,
+            signature=signature,
+            identity_public_key=identity_public_key
+        )
+        if not is_signature_valid:
+            print(f"[Verification Failed] Invalid signature for credential {cred_id}.", file=sys.stderr)
+            return False
+
+        # 5. Check Origin Binding (if context exists in credential)
+        if origin_context_issued: # Only check if binding was seemingly used
+            current_context = self._capture_origin_context()
+            # Basic check: Compare device IDs if both exist
+            # TODO: Implement more sophisticated origin policy matching later.
+            issued_device_id = origin_context_issued.get("device_id")
+            current_device_id = current_context.get("device_id")
+            if issued_device_id and current_device_id and issued_device_id != current_device_id:
+                print(f"[Verification Failed] Origin context mismatch for {cred_id}. "
+                      f"Issued: {issued_device_id}, Current: {current_device_id}", file=sys.stderr)
+                return False
+            # Add more context checks as needed (IP, hostname, etc.)
+
+        # All checks passed
+        return True
+
 
 # Singleton instance of the client for easy import and use.
 client = VaultClient() 

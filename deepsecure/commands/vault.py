@@ -19,8 +19,8 @@ app = typer.Typer(
 
 @app.command("issue")
 def issue(
-    scope: str = typer.Option(
-        ..., 
+    scope: Optional[str] = typer.Option(
+        None, 
         help="Scope for the issued credential (e.g., `db:readonly`, `api:full`). **Required**."
     ),
     ttl: str = typer.Option(
@@ -34,6 +34,11 @@ def issue(
     origin_binding: bool = typer.Option(
         True, 
         help="Enforce origin binding. Binds the credential to the context (hostname, user, etc.) where it was issued."
+    ),
+    local: bool = typer.Option(
+        False, 
+        "--local", 
+        help="Force credential generation locally, even if a backend is configured."
     ),
     output: str = typer.Option(
         "text", 
@@ -52,13 +57,21 @@ def issue(
     The ephemeral private key is included in the output for immediate use
     but should **not** be stored long-term.
     """
+    # Explicitly check for required scope
+    if scope is None:
+        utils.print_error("Option --scope is required.")
+        # print_error raises typer.Exit(1), but typer might have exited with 2 already
+        # Let's raise explicitly for clarity in testing
+        raise typer.Exit(code=1)
+
     try:
-        # Issue the credential using the core client
+        # Pass the local flag to the core client
         credential = vault_client.client.issue_credential(
             scope=scope,
             ttl=ttl,
             agent_id=agent_id,
-            origin_binding=origin_binding
+            origin_binding=origin_binding,
+            local_only=local # Pass the flag
         )
         
         # Format the output based on user preference
@@ -66,7 +79,7 @@ def issue(
             # TODO: Consider filtering the ephemeral_private_key from JSON output by default?
             utils.print_json(data=credential)
         else:
-            utils.console.print(f"[bold green]Credential issued successfully![/]")
+            utils.console.print(f"[bold green]Credential issued successfully! ({'Local' if local else 'Backend (Placeholder)'})[/]")
             utils.console.print(f"[bold]ID:[/] {credential['id']}")
             utils.console.print(f"[bold]Agent ID:[/] {credential['agent_id']}")
             utils.console.print(f"[bold]Scope:[/] {credential['scope']}")
@@ -98,60 +111,73 @@ def revoke(
     id: str = typer.Option(
         ..., 
         help="ID of the credential to revoke. **Required**."
+    ),
+    local: bool = typer.Option(
+        False, 
+        help="Only perform revocation in the local list, do not attempt backend revocation."
     )
 ):
-    """Revoke a credential issued to an agent/tool.
+    """Revoke a credential.
 
-    **(Placeholder)** This command currently only logs the revocation attempt.
-    A backend system is required to track and manage credential validity.
+    By default, attempts backend revocation (placeholder) AND updates the
+    local revocation list (`~/.deepsecure/revoked_creds.json`).
+    Use `--local` to only update the local list.
     """
     try:
-        # Call the core client to revoke the credential
-        # TODO: Implement real revocation call to a backend.
-        result = vault_client.client.revoke_credential(id)
+        # Pass the local flag to the core client method
+        result = vault_client.client.revoke_credential(id, local_only=local)
         
         if result:
-            utils.print_success(f"Revoked credential: {id}")
+            if local:
+                utils.print_success(f"Added credential {id} to local revocation list.")
+            else:
+                # TODO: Update this message when backend is implemented
+                utils.print_success(f"Revocation initiated for credential {id} (backend placeholder + local update). ")
         else:
-            # TODO: Improve error message if revocation fails in a real implementation.
-            utils.print_error(f"Failed to revoke credential: {id}")
-            raise typer.Exit(code=1)
+            # VaultClient prints specific warnings/errors
+            utils.print_error(f"Failed to revoke credential {id}. Check logs for details.", exit_code=1)
+            
     except Exception as e:
-        # TODO: Catch more specific exceptions.
-        utils.print_error(f"Error revoking credential: {str(e)}")
+        utils.print_error(f"Error during revocation: {str(e)}")
         raise typer.Exit(code=1)
 
 @app.command("rotate")
 def rotate(
     type: str = typer.Option(
         ..., 
-        help="Type of credential to rotate (e.g., `api-key`). **Required**."
-        # TODO: Clarify what types are supported, likely agent long-term keys.
+        help="Type of credential to rotate (e.g., `agent-identity`). **Required**."
+        # TODO: Clarify supported types.
     ),
     path: Optional[Path] = typer.Option(
         None, 
-        help="Path to the config file containing the credential (if applicable)."
-        # TODO: Define how path is used in rotation.
+        help="Path to the config file containing the credential (usage TBD)."
+        # TODO: Define how path is used.
+    ),
+    local: bool = typer.Option(
+        False,
+        "--local",
+        help="Force rotation locally (placeholder), even if a backend is configured."
     )
 ):
     """Rotate a long-lived credential securely.
 
-    **(Placeholder)** This command simulates rotation but doesn't perform
-    actual key rotation yet. Primarily intended for rotating agent long-term keys.
+    By default, attempts backend rotation (placeholder).
+    Use `--local` to force local-only rotation (placeholder).
+    **(Placeholder)** This command currently simulates rotation.
     """
     try:
-        # Call the core client to rotate the credential
-        # TODO: Implement real rotation logic, likely for agent identity keys.
+        # Pass the local flag to the core client method
         result = vault_client.client.rotate_credential(
             credential_type=type,
-            config_path=str(path) if path else None
+            config_path=str(path) if path else None,
+            local_only=local # Pass the flag
         )
         
         # TODO: Provide more meaningful output upon successful rotation.
-        utils.console.print(f"Rotated [bold]{type}[/] credential (Placeholder)")
+        utils.console.print(f"Rotated [bold]{type}[/] credential (Placeholder - {'Local' if local else 'Backend Attempt'}) ")
         utils.console.print(f"[bold]New ID/Reference:[/] {result['id']}")
         utils.console.print(f"[bold]Rotated at:[/] {utils.format_timestamp(result['rotated_at'])}")
     except Exception as e:
         # TODO: Catch more specific exceptions.
         utils.print_error(f"Error rotating credential: {str(e)}")
-        raise typer.Exit(code=1) 
+        raise typer.Exit(code=1)
