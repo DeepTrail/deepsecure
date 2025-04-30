@@ -4,6 +4,7 @@ import importlib.metadata
 
 from .commands import (
     vault
+    # invoke removed
 )
 
 # Import other commands as they're implemented
@@ -27,6 +28,7 @@ app = typer.Typer(
 
 # Register command modules
 app.add_typer(vault.app, name="vault")
+# app.add_typer(invoke.app, name="invoke") # Removed invoke command group
 
 # Register other commands as they're implemented
 # app.add_typer(audit.app, name="audit")
@@ -64,17 +66,16 @@ def login(
     
     # Placeholder for actual login logic
     if interactive:
-        utils.console.print("Please enter your credentials:")
-        # In a real implementation, would prompt for username/password
-        # or open a browser for OAuth flow
-        token = "dummy-token-abc123"
+        # Ensure authenticated (will use placeholder flow if needed)
+        auth.ensure_authenticated()
     else:
-        # In a non-interactive flow, might use environment variables
-        token = "dummy-token-xyz789"
-    
-    # Store the token
-    auth.store_token(token)
-    utils.print_success("Successfully authenticated")
+        # Non-interactive might rely on env vars or existing token
+        token = auth.get_token()
+        if not token:
+            utils.print_error("Authentication required. Use interactive login or set DEEPSECURE_API_TOKEN.")
+            # Exit handled by print_error
+        else:
+             utils.print_success("Using existing authentication.")
 
 if __name__ == "__main__":
     app() 

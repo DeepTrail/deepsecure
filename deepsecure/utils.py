@@ -31,7 +31,7 @@ def print_error(message: str, exit_code: int | None = 1):
 
 def print_json(data: Dict[str, Any], pretty: bool = True):
     """
-    Prints dictionary data as formatted and syntax-highlighted JSON.
+    Prints dictionary data as formatted JSON.
     
     Args:
         data: The dictionary data to print.
@@ -40,9 +40,8 @@ def print_json(data: Dict[str, Any], pretty: bool = True):
     indent = 2 if pretty else None
     try:
         json_str = json.dumps(data, indent=indent, sort_keys=True, ensure_ascii=False)
-        # Use rich's syntax highlighting for JSON
-        syntax = Syntax(json_str, "json", theme="monokai", line_numbers=False, word_wrap=True)
-        console.print(syntax)
+        # Use standard Python print for JSON output to avoid any Rich formatting
+        print(json_str)
     except (TypeError, ValueError) as e:
         # Fallback if JSON serialization fails
         print_error(f"Failed to format data as JSON: {e}", exit_code=None)

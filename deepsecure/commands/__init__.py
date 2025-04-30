@@ -1,7 +1,8 @@
 '''DeepSecure CLI command modules.'''
 
-# Import command modules here when they're ready to be used
-# from . import vault
+from . import vault
+# from . import invoke # Removed invoke command
+# Import other command modules here when they're ready to be used
 # from . import audit
 # from . import risk
 # from . import policy
