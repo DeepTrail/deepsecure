@@ -158,35 +158,37 @@ def test_vault_rotate_local_placeholder(local_state):
         "vault", "issue", "--scope", "test:local-rotate", "--ttl", "1m", "--local", "--output", "json"
     ])
     assert issue_result.exit_code == 0
-    credential = json.loads(issue_result.stdout)
+    try:
+        credential = json.loads(issue_result.stdout)
+    except json.JSONDecodeError:
+        pytest.fail(f"Failed to parse JSON from issue command: {issue_result.stdout}")
+        
     agent_id = credential["agent_id"]
     identity_file = local_state["identities_dir"] / f"{agent_id}.json"
-    assert identity_file.exists()
+    assert identity_file.exists(), f"Identity file for {agent_id} not found."
     
     # Optional: Read initial key to compare later if real rotation implemented
     # with open(identity_file, 'r') as f:
     #     initial_identity = json.load(f)
     # initial_pub_key = initial_identity.get("public_key")
 
-    # 2. Run the rotate command locally
-    # We need to tell it which identity to rotate, or implement default logic
-    # Assuming for now it might default or we pass the agent ID (not currently supported by cmd)
-    # Let's test the basic command execution for now. Need to specify type.
+    # 2. Run the rotate command locally, providing the required agent_id
     rotate_result = runner.invoke(app, [
         "vault", 
         "rotate", 
-        "--type", "agent-identity", # Assuming this type targets the local identity
+        "--agent-id", agent_id,  # Provide the required agent ID
+        # --type is omitted to test the default ("agent-identity")
         "--local"
-        # TODO: Add --agent-id when rotate command supports it, or test default behavior
     ])
 
     print("Rotate CLI Output:", rotate_result.stdout)
     assert rotate_result.exit_code == 0
-    assert "Rotated" in rotate_result.stdout
-    assert "agent-identity" in rotate_result.stdout
-    assert "Placeholder - Local" in rotate_result.stdout
-    assert "New ID/Reference:" in rotate_result.stdout
-    assert "Rotated at:" in rotate_result.stdout
+    # Check output reflecting the change
+    assert f"Rotation simulated for agent {agent_id}" in rotate_result.stdout
+    assert "type: agent-identity" in rotate_result.stdout
+    assert "Local" in rotate_result.stdout # Check it respected --local
+    assert "New ID/Reference (Placeholder):" in rotate_result.stdout
+    assert "Rotated at (Placeholder):" in rotate_result.stdout
 
     # TODO: When rotation logic is implemented in VaultClient:
     # 1. Reread the identity file.

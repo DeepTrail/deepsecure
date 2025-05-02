@@ -143,41 +143,50 @@ def revoke(
 
 @app.command("rotate")
 def rotate(
+    agent_id: str = typer.Option(
+        ..., # Ellipsis makes it required
+        help="Identifier of the agent whose identity key should be rotated. **Required**."
+    ),
     type: str = typer.Option(
-        ..., 
-        help="Type of credential to rotate (e.g., `agent-identity`). **Required**."
-        # TODO: Clarify supported types.
+        "agent-identity", # Default value
+        help="Type of credential to rotate. Currently only `agent-identity` is supported."
+        # Removed TODO about supported types
     ),
-    path: Optional[Path] = typer.Option(
-        None, 
-        help="Path to the config file containing the credential (usage TBD)."
-        # TODO: Define how path is used.
-    ),
+    # Removed path: Optional[Path] parameter
     local: bool = typer.Option(
         False,
         "--local",
         help="Force rotation locally (placeholder), even if a backend is configured."
     )
 ):
-    """Rotate a long-lived credential securely.
+    """Rotate the long-lived identity key for a specified agent.
+
+    This command targets the agent's primary Ed25519 identity key stored locally
+    (e.g., in `~/.deepsecure/identities/`).
 
     By default, attempts backend rotation (placeholder).
     Use `--local` to force local-only rotation (placeholder).
     **(Placeholder)** This command currently simulates rotation.
     """
+    # Add validation for the type if needed in the future
+    if type != "agent-identity":
+         utils.print_error(f"Error: Unsupported rotation type '{type}'. Currently only 'agent-identity' is supported.")
+         raise typer.Exit(code=1)
+
     try:
-        # Pass the local flag to the core client method
+        # Pass agent_id instead of config_path
         result = vault_client.client.rotate_credential(
+            agent_id=agent_id, # Pass agent_id
             credential_type=type,
-            config_path=str(path) if path else None,
+            # config_path removed
             local_only=local # Pass the flag
         )
-        
-        # TODO: Provide more meaningful output upon successful rotation.
-        utils.console.print(f"Rotated [bold]{type}[/] credential (Placeholder - {'Local' if local else 'Backend Attempt'}) ")
-        utils.console.print(f"[bold]New ID/Reference:[/] {result['id']}")
-        utils.console.print(f"[bold]Rotated at:[/] {utils.format_timestamp(result['rotated_at'])}")
+
+        # TODO: Provide more meaningful output upon successful rotation (when implemented).
+        utils.console.print(f"Rotation simulated for agent [bold]{agent_id}[/] (type: [bold]{type}[/], {'Local' if local else 'Backend Attempt'})")
+        utils.console.print(f"[bold]New ID/Reference (Placeholder):[/] {result['id']}")
+        utils.console.print(f"[bold]Rotated at (Placeholder):[/] {utils.format_timestamp(result['rotated_at'])}")
     except Exception as e:
         # TODO: Catch more specific exceptions.
-        utils.print_error(f"Error rotating credential: {str(e)}")
+        utils.print_error(f"Error rotating credential for agent {agent_id}: {str(e)}")
         raise typer.Exit(code=1)

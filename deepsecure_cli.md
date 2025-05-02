@@ -26,12 +26,13 @@ The `deepsecure` CLI will act as the command-line interface and security control
 
 ### `deepsecure vault rotate`
 
-* **Purpose:** Rotate a long-lived credential securely.
-* **What it helps with:** Automates hygiene and prevents credential reuse attacks.
+* **Purpose:** Rotate the long-lived **agent identity key** (Ed25519) associated with a specific agent ID.
+* **What it helps with:** Improves security hygiene by periodically changing the primary signing key for an agent.
 * **Example:**
 
     ```bash
-    deepsecure vault rotate --type=api-key --path=config.json
+    deepsecure vault rotate --agent-id=agent-0053e159-5fb5-4e19-924f-7abdb26d8901
+    # --type defaults to 'agent-identity'
     ```
 
 ## 🧠 2. Identity Risk & Behavior Monitoring
