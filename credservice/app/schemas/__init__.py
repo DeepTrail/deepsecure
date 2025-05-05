@@ -1,5 +1,14 @@
 """Expose Pydantic schemas for easier importing."""
 
-from .agent import Agent, AgentCreate, AgentBase
-from .credential import Credential, CredentialCreate, CredentialIssue, CredentialBase, CredentialIssueRequest, CredentialIssueResponse, CredentialVerificationResponse
-from .token import Token, AgentLogin 
+from .agent import Agent, AgentCreate, AgentBase, AgentRotateRequest
+from .credential import (
+    CredentialBase,
+    CredentialIssueRequest,
+    CredentialIssueResponse,
+    CredentialVerifyResponse,
+    CredentialRevokeResponse,
+    Credential
+)
+from .token import Token, AgentLogin
+
+# Add any other schemas needed globally here 

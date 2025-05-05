@@ -1,66 +1,108 @@
 """Pydantic schemas for Credential related API operations."""
 
-from pydantic import BaseModel, Field
+import uuid
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-from datetime import datetime
+import base64
+import logging
 
-# Base schema with common fields
+from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
+
+# --- Base Schema --- #
+
 class CredentialBase(BaseModel):
-    """Base schema for Credential data, containing common fields."""
-    scope: str
-    agent_id: str
-    ephemeral_public_key: str # Base64 encoded representation
-    credential_id: str = Field(..., example="cred_a1b2c3d4")
+    """Shared base properties for credentials."""
+    agent_id: str = Field(..., example="agent_f3b4c1a9")
+    scope: Optional[str] = Field(None, example="read:secrets:prod/app1")
 
-# Schema for request body when issuing a credential
+# --- Issue Credential --- #
+
 class CredentialIssueRequest(CredentialBase):
-    """Schema for the request body when issuing a new credential."""
-    signature: str # Base64 encoded signature of ephemeral_public_key
-    ttl: str = Field(..., description="Time-to-live string (e.g., '5m', '1h')")
-    origin_context: Optional[Dict[str, Any]] = Field(None, description="Optional dictionary containing origin context.")
+    """Schema for requesting a new credential to be issued."""
+    ephemeral_public_key: str = Field(..., description="Base64 encoded X25519 public key from the agent.", example="base64_encoded_x25519_pub_key")
+    signature: str = Field(..., description="Base64 encoded Ed25519 signature of the ephemeral_public_key by the agent's long-term key.", example="base64_encoded_signature")
+    ttl: int = Field(..., gt=0, description="Requested Time-To-Live for the credential in seconds.", example=3600)
+    origin_context: Optional[Dict[str, Any]] = Field(None, description="Optional context about the request origin.", example={"hostname": "agent-host-1", "ip": "192.168.1.100"})
 
-# Schema for the response when a credential is issued
+    # Store decoded bytes after validation
+    ephemeral_public_key_bytes: bytes | None = None
+    signature_bytes: bytes | None = None
+
+    @field_validator('ephemeral_public_key', 'signature')
+    def decode_base64(cls, v: str, info) -> str:
+        """Validate and decode base64 fields."""
+        try:
+            decoded_bytes = base64.b64decode(v)
+            # Store bytes in the instance context for CRUD to use
+            if info.field_name == 'ephemeral_public_key':
+                # Basic validation for X25519 key size
+                if len(decoded_bytes) != 32:
+                    raise ValueError("Decoded ephemeral public key must be 32 bytes long")
+                # Add to validated data - this won't work directly, handle in CRUD
+            elif info.field_name == 'signature':
+                # Basic validation for Ed25519 signature size
+                if len(decoded_bytes) != 64:
+                    raise ValueError("Decoded signature must be 64 bytes long")
+                # Add to validated data - this won't work directly, handle in CRUD
+            return v # Return original string
+        except (ValueError, base64.binascii.Error) as e:
+            logger.error(f"Base64 decoding failed for field {info.field_name}: {e}")
+            raise ValueError(f"Invalid base64 encoding for {info.field_name}: {e}")
+
 class CredentialIssueResponse(CredentialBase):
-    """Schema for the API response after successfully issuing a credential."""
-    issued_at: datetime
+    """Schema for the response after successfully issuing a credential."""
+    credential_id: str = Field(..., example=str(uuid.uuid4()))
+    ephemeral_public_key: str = Field(..., description="Base64 encoded X25519 public key.") # Key provided by agent, returned for confirmation
     expires_at: datetime
-    origin_context: Optional[Dict[str, Any]] = None
 
-    class Config:
-        """Pydantic configuration."""
-        orm_mode = True # Pydantic V1 style, or from_attributes = True in V2
+    model_config = {
+        "from_attributes": True
+    }
 
-# Schema for verifying a credential (potential response model)
-class CredentialVerificationResponse(BaseModel):
-    """Schema for the API response when verifying a credential's status."""
+    @field_validator('ephemeral_public_key', mode='before')
+    def encode_key_bytes(cls, v):
+        if isinstance(v, bytes):
+            return base64.b64encode(v).decode('utf-8')
+        return v
+
+# --- Verify Credential --- #
+
+class CredentialVerifyResponse(BaseModel):
+    """Schema for the response when verifying a credential."""
     credential_id: str
-    status: str = Field(..., description="Verification status (e.g., 'valid', 'expired', 'revoked', 'not_found')")
+    is_valid: bool
+    status: str = Field(..., example="valid | expired | revoked | not_found")
     scope: Optional[str] = None
     agent_id: Optional[str] = None
     expires_at: Optional[datetime] = None
-    # Add more fields as needed for verification context 
 
-# Properties to receive via API on creation/issuance request
-class CredentialCreate(BaseModel):
-    agent_id: str = Field(..., example="agent_f3b4c1a9")
-    # Potentially add audience, scope, requested_ttl_minutes here
-    # audience: Optional[str] = Field(None, example="service.example.com")
-    # requested_ttl_minutes: Optional[int] = Field(None, example=60)
+# --- Revoke Credential --- #
 
-# Properties included in the actual issued credential/token response
-class CredentialIssue(BaseModel):
-    access_token: str = Field(..., example="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
-    token_type: str = Field(default="bearer", example="bearer")
-    credential_id: str = Field(..., example="cred_a1b2c3d4")
-    expires_at: datetime
+class CredentialRevokeResponse(BaseModel):
+    """Schema for the response after revoking a credential."""
+    credential_id: str
+    status: str = Field(..., example="revoked | already_revoked | not_found")
 
-# Properties stored in and returned from the database record
+# --- General Credential Representation --- #
+
 class Credential(CredentialBase):
-    id: int # Database ID
-    expires_at: datetime
+    """Schema representing a credential record, often used internally or for full GET responses."""
+    credential_id: str
+    ephemeral_public_key: str # Base64 encoded
+    signature: str # Base64 encoded
     issued_at: datetime
+    expires_at: datetime
     revoked_at: Optional[datetime] = None
-    is_revoked: bool = False
+    origin_context: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True # Pydantic V2 setting 
+    model_config = {
+        "from_attributes": True
+    }
+
+    @field_validator('ephemeral_public_key', 'signature', mode='before')
+    def encode_bytes_fields(cls, v):
+        if isinstance(v, bytes):
+            return base64.b64encode(v).decode('utf-8')
+        return v 
