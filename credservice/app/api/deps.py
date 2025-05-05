@@ -16,12 +16,10 @@ to provide shared logic or resources (like database sessions) to endpoints.
 #         db.close()
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError
+from fastapi.security import APIKeyHeader
 from typing import Annotated, Generator
 from sqlalchemy.orm import Session
 
-from app.core import security
 from app.core.config import settings
 from app.db.session import SessionLocal # Import the session factory
 
@@ -37,39 +35,43 @@ def get_db() -> Generator[Session, None, None]:
 
 DbDep = Annotated[Session, Depends(get_db)]
 
-# --- Authentication Dependencies ---
+# --- Authentication Dependency (API Key) ---
 
-# Define the OAuth2 scheme, pointing to the future token URL
-# This URL doesn't have to exist yet, but it's where clients *should* get tokens
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/login/access-token")
+# Define the header scheme
+api_key_header_scheme = APIKeyHeader(name="Authorization", auto_error=False) # auto_error=False to handle missing header manually
 
-def get_current_identity(token: Annotated[str, Depends(oauth2_scheme)]) -> str:
-    """Dependency to get the current identity (e.g., agent_id) from the token.
+def verify_api_key(api_key_header: str = Depends(api_key_header_scheme)):
+    """Dependency to verify the static API key in the Authorization header.
 
-    Raises:
-        HTTPException 401: If token is invalid, expired, or missing credentials.
+    Expects header format: "Authorization: Bearer <YOUR_STATIC_TOKEN>"
     """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    # Check if the header is present and starts with "Bearer "
+    if not api_key_header or not api_key_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing Authorization header (Bearer token expected)",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    payload = security.decode_token(token)
-    if payload is None:
-        raise credentials_exception
+    # Extract the token part
+    token = api_key_header.split(" ")[1]
 
-    identity: str | None = payload.get("sub")
-    if identity is None:
-        # Should not happen if token creation is correct, but good to check
-        raise credentials_exception
-
-    # Here you could add logic to fetch the agent/user from DB if needed
-    # For now, we just return the identity string (agent_id)
-    return identity
+    # Compare with the configured static token
+    if token != settings.BACKEND_API_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    # If token is valid, the dependency call succeeds (returns None implicitly)
+    return # Indicates success
 
 # Type alias for the dependency
-CurrentUser = Annotated[str, Depends(get_current_identity)]
+APIKeyDep = Depends(verify_api_key)
+
+# --- END Authentication Dependencies ---
+
+# (Removed commented out OAuth2 code)
 
 # You can add more dependencies here later, e.g., for role checks
 # def get_current_active_admin(...): ... 
