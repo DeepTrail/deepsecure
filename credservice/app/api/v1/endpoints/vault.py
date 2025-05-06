@@ -24,9 +24,18 @@ def issue_credential(
 ):
     """Issue a new short-lived credential for an agent.
 
-    Requires the agent to provide their ephemeral public key and a signature
-    of that key using their long-term identity key.
-    Requires valid API Key authentication.
+    - Verifies the provided signature against the agent's registered key.
+    - Creates a credential record in the database with a calculated expiry.
+    - Requires valid API Key authentication.
+
+    Args:
+        credential_in: Input data containing agent ID, ephemeral key, signature, scope, and TTL.
+        db: Database session dependency.
+
+    Raises:
+        HTTPException 404: If the specified agent_id is not found.
+        HTTPException 400: If the base64 encoding is invalid or the signature verification fails.
+        HTTPException 500: If there's an internal error during signature verification or DB operation.
     """
     logger.info(f"Attempting to issue credential for agent: {credential_in.agent_id}")
 
@@ -77,16 +86,24 @@ def revoke_credential(
     db: deps.DbDep,
     _: None = deps.APIKeyDep
 ):
-    """Revoke an existing credential.
-    Requires valid API Key authentication.
+    """Revoke an existing credential by setting its `revoked_at` timestamp.
+
+    - Requires valid API Key authentication.
+    - Idempotent: Returns success even if already revoked.
+
+    Args:
+        credential_id: The ID of the credential to revoke.
+        db: Database session dependency.
+
+    Raises:
+        HTTPException 404: If the credential_id is not found.
+        HTTPException 500: If a database error occurs during update.
     """
     logger.info(f"Attempting to revoke credential: {credential_id}")
     db_credential = crud.credential.revoke(db=db, credential_id=credential_id)
 
     if db_credential is None:
         logger.warning(f"Credential not found for revocation: {credential_id}")
-        # Return success-like status even if not found, or already revoked, to be idempotent?
-        # Or return 404? Let's return 404 for clarity.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
 
     status_message = "revoked"
@@ -106,12 +123,23 @@ def revoke_credential(
 @router.post("/agents/{agent_id}/rotate-identity", status_code=status.HTTP_204_NO_CONTENT)
 def rotate_agent_identity_key(
     agent_id: str,
-    rotation_request: AgentRotateRequest, # Use schema from agent schemas
+    rotation_request: AgentRotateRequest,
     db: deps.DbDep,
     _: None = deps.APIKeyDep
 ):
     """Update the long-term identity public key for an agent.
-    Requires valid API Key authentication.
+
+    - Requires valid API Key authentication.
+
+    Args:
+        agent_id: The ID of the agent whose key is being rotated.
+        rotation_request: Request body containing the new public key (base64 encoded).
+        db: Database session dependency.
+
+    Raises:
+        HTTPException 404: If the agent_id is not found.
+        HTTPException 400: If the new_public_key format is invalid.
+        HTTPException 500: If a database error occurs during update.
     """
     logger.info(f"Attempting to rotate identity key for agent: {agent_id}")
     agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
@@ -147,7 +175,17 @@ def verify_credential(
     credential_id: str,
     db: deps.DbDep,
 ):
-    """Verify the status of a credential (valid, expired, revoked, not_found)."""
+    """Verify the status of a credential (valid, expired, revoked, not_found).
+
+    This endpoint is publicly accessible.
+
+    Args:
+        credential_id: The ID of the credential to verify.
+        db: Database session dependency.
+
+    Returns:
+        CredentialVerifyResponse: Object detailing the credential's status.
+    """
     logger.debug(f"Verifying credential: {credential_id}")
     db_credential = crud.credential.get_by_credential_id(db=db, credential_id=credential_id)
 
