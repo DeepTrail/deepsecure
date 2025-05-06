@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .. import utils
 from ..core import vault_client
+from ..exceptions import ApiError, VaultError # Import specific exceptions
 
 app = typer.Typer(
     name="vault",
@@ -144,49 +145,48 @@ def revoke(
 @app.command("rotate")
 def rotate(
     agent_id: str = typer.Option(
-        ..., # Ellipsis makes it required
+        ...,
         help="Identifier of the agent whose identity key should be rotated. **Required**."
     ),
     type: str = typer.Option(
-        "agent-identity", # Default value
+        "agent-identity",
         help="Type of credential to rotate. Currently only `agent-identity` is supported."
-        # Removed TODO about supported types
     ),
-    # Removed path: Optional[Path] parameter
     local: bool = typer.Option(
         False,
         "--local",
-        help="Force rotation locally (placeholder), even if a backend is configured."
+        help="Force rotation locally, do not attempt backend notification."
     )
 ):
     """Rotate the long-lived identity key for a specified agent.
 
-    This command targets the agent's primary Ed25519 identity key stored locally
-    (e.g., in `~/.deepsecure/identities/`).
-
-    By default, attempts backend rotation (placeholder).
-    Use `--local` to force local-only rotation (placeholder).
-    **(Placeholder)** This command currently simulates rotation.
+    Updates the local identity file (`~/.deepsecure/identities/`) first.
+    If `--local` is not used, attempts to notify the backend service.
     """
-    # Add validation for the type if needed in the future
     if type != "agent-identity":
          utils.print_error(f"Error: Unsupported rotation type '{type}'. Currently only 'agent-identity' is supported.")
          raise typer.Exit(code=1)
 
     try:
-        # Pass agent_id instead of config_path
         result = vault_client.client.rotate_credential(
-            agent_id=agent_id, # Pass agent_id
+            agent_id=agent_id,
             credential_type=type,
-            # config_path removed
-            local_only=local # Pass the flag
+            local_only=local
         )
 
-        # TODO: Provide more meaningful output upon successful rotation (when implemented).
-        utils.console.print(f"Rotation simulated for agent [bold]{agent_id}[/] (type: [bold]{type}[/], {'Local' if local else 'Backend Attempt'})")
-        utils.console.print(f"[bold]New ID/Reference (Placeholder):[/] {result['id']}")
-        utils.console.print(f"[bold]Rotated at (Placeholder):[/] {utils.format_timestamp(result['rotated_at'])}")
+        status_msg = result.get("status", "Unknown status")
+        backend_msg = f"Backend Notified: {result.get('backend_notified', 'N/A')}"
+        utils.print_success(f"{status_msg} for agent {agent_id}. {backend_msg}")
+
+    # Catch specific errors first
+    except VaultError as e:
+         utils.print_error(f"Vault error during rotation for agent {agent_id}: {e}")
+         raise typer.Exit(code=1)
+    except ApiError as e:
+         # This should now catch the detailed ApiError from the client
+         utils.print_error(f"Backend API error during rotation notification for agent {agent_id}: {e}")
+         raise typer.Exit(code=1)
+    # Catch generic/unexpected errors last
     except Exception as e:
-        # TODO: Catch more specific exceptions.
-        utils.print_error(f"Error rotating credential for agent {agent_id}: {str(e)}")
+        utils.print_error(f"Unexpected error rotating credential for agent {agent_id}: {e}")
         raise typer.Exit(code=1)

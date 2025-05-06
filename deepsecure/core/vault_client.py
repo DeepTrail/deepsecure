@@ -11,11 +11,15 @@ from datetime import datetime, timedelta
 import re
 import sys
 from pathlib import Path
+import requests
+import logging # Import logging
 
 from . import base_client
 from .crypto.key_manager import key_manager
 from .audit_logger import audit_logger
 from .. import exceptions
+
+logger = logging.getLogger(__name__) # Define logger
 
 # --- Constants for Local State --- #
 DEEPSECURE_DIR = Path(os.path.expanduser("~/.deepsecure"))
@@ -39,7 +43,7 @@ class VaultClient(base_client.BaseClient):
         like the key manager and audit logger, ensures local storage directories
         exist, and loads the local revocation list.
         """
-        super().__init__("vault")
+        super().__init__()
         self.key_manager = key_manager
         self.audit_logger = audit_logger
         self.identity_store_path = IDENTITY_STORE_PATH
@@ -339,86 +343,142 @@ class VaultClient(base_client.BaseClient):
         Issue an ephemeral credential.
 
         If `local_only` is True, performs all generation and signing locally.
-        If `local_only` is False (default), attempts to issue via the backend (placeholder).
+        If `local_only` is False (default), attempts to issue via the backend.
 
         Args:
             scope: Scope of access (e.g., 'db:readonly', 'api:full').
-            ttl: Time-to-live for the credential (e.g., '5m', '1h').
+            ttl: Time-to-live string (e.g., '5m', '1h'). **Backend expects seconds (int)**.
             agent_id: Optional agent identifier. If None, a new identity is created.
             origin_context: Optional pre-captured origin context.
             origin_binding: If True, capture/use origin context.
-            local_only: If True, force local generation even if backend exists.
+            local_only: If True, force local generation.
 
         Returns:
             A dictionary representing the issued credential, including the ephemeral
-            private key.
+            private key (whether issued locally or via backend).
 
         Raises:
-            ValueError: If the TTL format is invalid.
+            ValueError: If the TTL format is invalid or backend URL/token missing.
             VaultError: If identity loading/saving fails.
-            ApiError: If backend communication fails (when implemented).
+            ApiError: If backend communication fails.
         """
-        if not local_only:
-            # --- Backend Issuance Attempt (Placeholder) --- #
-            # TODO: Implement backend issuance logic.
-            print(f"[DEBUG] (Placeholder) Would attempt backend issuance for scope={scope}, ttl={ttl}")
-            try:
-                # response = self._request("POST", "/issue", data={"scope": scope, ...})
-                # return response["data"] # Assuming backend returns the credential dict
-                # Simulate a failure for now to fall back to local
-                raise exceptions.ApiError("Backend issuance not implemented")
-            except exceptions.ApiError as e:
-                # TODO: Decide on fallback behavior. For now, fall back to local if backend fails.
-                print(f"[Warning] Backend issuance failed: {e}. Falling back to local issuance.", file=sys.stderr)
-                pass # Continue with local issuance
-            # If backend succeeded in the future, we would return here.
-            # return backend_credential 
-
-        # --- Local Issuance Flow --- #
-        # print("[Debug] Performing local credential issuance.", file=sys.stderr) # Removed this line causing test failures
-        
-        # 1. Get or create agent identity
+        # 1. Get or create agent identity (needed for both local and backend)
         agent_identity = self._get_agent_identity(agent_id)
-        
-        # 2. Get origin context if needed
+        current_agent_id = agent_identity['id']
+
+        # 2. Generate ephemeral keypair (X25519) (needed for both)
+        ephemeral_keys = self.key_manager.generate_ephemeral_keypair()
+        ephemeral_public_key_b64 = ephemeral_keys["public_key"]
+        ephemeral_private_key_b64 = ephemeral_keys["private_key"] # Keep this safe!
+
+        # 3. Sign the ephemeral public key (with Ed25519 identity key) (needed for both)
+        signature_b64 = self.key_manager.sign_ephemeral_key(
+            ephemeral_public_key_b64,
+            agent_identity["private_key"]
+        )
+
+        # 4. Get origin context if needed (needed for both, potentially)
         captured_context = {}
         if origin_binding:
             captured_context = origin_context if origin_context is not None else self._capture_origin_context()
-        
-        # 3. Generate ephemeral keypair (X25519)
-        ephemeral_keys = self.key_manager.generate_ephemeral_keypair()
-        
-        # 4. Sign the ephemeral public key (with Ed25519 identity key)
-        # TODO: Implement actual context-bound signing as planned.
-        signature = self.key_manager.sign_ephemeral_key(
-            ephemeral_keys["public_key"], 
-            agent_identity["private_key"]
-        )
-        
-        # 5. Calculate expiry timestamp
-        expiry = self._calculate_expiry(ttl)
-        
-        # 6. Create the final credential structure
+
+        # 5. Parse TTL (needed for backend) - Backend expects integer seconds
+        try:
+            # Use _calculate_expiry logic to get timedelta, then total seconds
+            ttl_pattern = re.compile(r'^(\d+)([smhdw])$')
+            match = ttl_pattern.match(ttl)
+            if not match:
+                raise ValueError(f"Invalid TTL format: {ttl}.")
+            value, unit = match.groups()
+            value = int(value)
+            delta = None
+            if unit == 's': delta = timedelta(seconds=value)
+            elif unit == 'm': delta = timedelta(minutes=value)
+            elif unit == 'h': delta = timedelta(hours=value)
+            elif unit == 'd': delta = timedelta(days=value)
+            elif unit == 'w': delta = timedelta(weeks=value)
+            if delta is None: raise ValueError(f"Invalid TTL unit: {unit}")
+            ttl_seconds = int(delta.total_seconds())
+            if ttl_seconds <= 0: raise ValueError("TTL must be positive.")
+        except ValueError as e:
+             audit_logger.log_credential_issuance_failed(agent_id=current_agent_id, scope=scope, reason=f"Invalid TTL: {e}")
+             raise
+
+        # --- Attempt Backend Issuance ---
+        if not local_only and self.backend_url and self.backend_api_token:
+            logger.info(f"Attempting backend credential issuance for agent {current_agent_id}")
+            try:
+                payload = {
+                    "agent_id": current_agent_id,
+                    "ephemeral_public_key": ephemeral_public_key_b64,
+                    "signature": signature_b64,
+                    "ttl": ttl_seconds,
+                    "scope": scope,
+                    "origin_context": captured_context if origin_binding else None,
+                }
+                # Remove None values from payload
+                payload = {k: v for k, v in payload.items() if v is not None}
+
+                response_data = self._request(
+                    "POST",
+                    "/api/v1/vault/credentials", # Match backend route
+                    data=payload,
+                    is_backend_request=True
+                )
+
+                # Backend returns: agent_id, scope, credential_id, ephemeral_public_key, expires_at
+                # We need to add the ephemeral_private_key back for the caller
+                issued_credential = response_data # Assume response is the credential dict directly
+                issued_credential["ephemeral_private_key"] = ephemeral_private_key_b64
+
+                # Log success
+                audit_logger.log_credential_issuance(
+                    credential_id=issued_credential["credential_id"],
+                    agent_id=current_agent_id,
+                    scope=scope,
+                    ttl=ttl, # Log original TTL string
+                    backend_issued=True
+                )
+                logger.info(f"Successfully issued credential {issued_credential['credential_id']} via backend.")
+                return issued_credential
+
+            except (exceptions.ApiError, ValueError, requests.exceptions.RequestException) as e:
+                logger.warning(f"Backend issuance failed: {e}. Falling back to local issuance.", exc_info=True)
+                audit_logger.log_credential_issuance_failed(agent_id=current_agent_id, scope=scope, reason=f"Backend error: {e}")
+                # Fall through to local issuance
+        elif not local_only:
+             logger.warning("Backend not configured (URL or Token missing). Performing local issuance.")
+
+
+        # --- Local Issuance Flow --- #
+        logger.info(f"Performing local credential issuance for agent {current_agent_id}")
+
+        # Calculate expiry timestamp (already have delta from TTL parsing)
+        now_ts = int(time.time())
+        expiry_ts = now_ts + ttl_seconds
+
+        # Create the final credential structure locally
         credential = self._create_credential(
-            agent_identity["id"],
-            ephemeral_keys["public_key"],
-            signature,
+            current_agent_id,
+            ephemeral_public_key_b64,
+            signature_b64,
             scope,
-            expiry,
-            captured_context 
+            expiry_ts,
+            captured_context
         )
-        
+
         # Add ephemeral private key
-        credential["ephemeral_private_key"] = ephemeral_keys["private_key"]
-        
-        # 7. Log the issuance event
-        self.audit_logger.log_credential_issuance(
+        credential["ephemeral_private_key"] = ephemeral_private_key_b64
+
+        # Log the local issuance event
+        audit_logger.log_credential_issuance(
             credential_id=credential["id"],
-            agent_id=agent_identity["id"],
+            agent_id=current_agent_id,
             scope=scope,
-            ttl=ttl
+            ttl=ttl, # Log original TTL string
+            backend_issued=False
         )
-        
+
         return credential
     
     def revoke_credential(self, credential_id: str, local_only: bool = False) -> bool:
@@ -426,133 +486,196 @@ class VaultClient(base_client.BaseClient):
         Revoke a credential.
 
         If `local_only` is True, only adds the ID to the local revocation list.
-        If `local_only` is False (default), it attempts backend revocation (placeholder)
-        AND updates the local list.
+        If `local_only` is False (default), attempts backend revocation.
+        The local list is ONLY updated if the backend call succeeds (or if local_only).
 
         Args:
             credential_id: The ID of the credential to revoke.
             local_only: If True, skip backend interaction attempt.
 
         Returns:
-            True if the credential was successfully added to the local list or
-            if the backend call succeeded (in the future), False otherwise.
+            True if the credential was successfully marked as revoked (either locally
+            for local_only=True, or via backend for local_only=False), False otherwise.
         """
         if not credential_id:
-            print("[Warning] Attempted to revoke an empty credential ID.", file=sys.stderr)
+            logger.warning("Attempted to revoke an empty credential ID.")
             return False
 
-        # --- Backend Revocation Attempt (Placeholder) --- # 
+        # --- Backend Revocation Attempt --- #
         backend_success = False
-        if not local_only:
-            # TODO: Implement actual backend revocation logic (e.g., call backend API).
-            # This requires a backend system to track issued credentials.
-            print(f"[DEBUG] (Placeholder) Would attempt backend revocation for id={credential_id}")
-            # Simulate backend success for now if not local_only
-            backend_success = True 
-            # In a real implementation, check the actual result from the backend API call.
-            # if not backend_api.revoke(credential_id):
-            #     print(f"[Error] Backend revocation failed for {credential_id}", file=sys.stderr)
-            #     # Decide if failure to revoke on backend should prevent local revocation
-            #     # return False # Option 1: Fail entirely
-            # else:
-            #     backend_success = True
+        if not local_only and self.backend_url and self.backend_api_token:
+            logger.info(f"Attempting backend revocation for id={credential_id}")
+            try:
+                # Backend endpoint is POST /api/v1/vault/credentials/{credential_id}/revoke
+                response_data = self._request(
+                    "POST",
+                    f"/api/v1/vault/credentials/{credential_id}/revoke",
+                    is_backend_request=True
+                )
+                # Check response status field from CredentialRevokeResponse
+                if response_data.get("status") in ["revoked", "already_revoked"]:
+                    logger.info(f"Backend successfully processed revocation for {credential_id} (status: {response_data.get('status')}).")
+                    backend_success = True
+                else:
+                    logger.error(f"Backend returned unexpected status for revocation of {credential_id}: {response_data.get('status')}")
+                    # Consider raising error or just returning False
+                    return False # Failed on backend
 
-        # --- Local Revocation --- #
-        local_update_needed = True
-        if credential_id in self._revoked_ids:
-            print(f"[Info] Credential {credential_id} is already revoked locally.", file=sys.stderr)
-            local_update_needed = False # No need to add again
-            # Even if already revoked locally, log the attempt again for audit trail
-            self.audit_logger.log_credential_revocation(credential_id=credential_id, revoked_by="local_user") # Placeholder user
-            # If backend succeeded OR we only care about local, return True
-            return backend_success or local_only
+            except exceptions.ApiError as e:
+                # Handle specific errors, e.g., 404 means it didn't exist on backend
+                if e.status_code == 404:
+                    logger.warning(f"Credential {credential_id} not found on backend for revocation.")
+                    # If not found on backend, should we still revoke locally? Maybe not.
+                    # Let's return False, as the authoritative source says it doesn't exist.
+                    return False
+                else:
+                    # Log other API errors and potentially fail
+                    logger.error(f"Backend revocation failed for {credential_id}: {e}")
+                    audit_logger.log_credential_revocation_failed(credential_id=credential_id, reason=f"Backend error: {e}")
+                    return False # Backend failed
+            except Exception as e:
+                 logger.error(f"Unexpected error during backend revocation for {credential_id}: {e}", exc_info=True)
+                 audit_logger.log_credential_revocation_failed(credential_id=credential_id, reason=f"Unexpected error: {e}")
+                 return False # Unexpected failure
+        elif not local_only:
+             logger.warning("Backend not configured (URL or Token missing). Cannot perform backend revocation.")
+             # If backend isn't configured, should we allow local-only? For now, let's require explicit local_only=True
+             print("[Error] Backend not configured. Use --local-only to revoke locally.", file=sys.stderr)
+             return False
 
-        if local_update_needed:
-            self._revoked_ids.add(credential_id)
-            self._save_revocation_list()
-            # print(f"[Debug] Credential {credential_id} added to local revocation list.", file=sys.stderr)
-
-        # Log the event (only once if added locally)
-        if local_update_needed:
-             self.audit_logger.log_credential_revocation(
-                credential_id=credential_id,
-                revoked_by="local_user" # Placeholder for actual user context
-            )
-
-        # Return True if the backend call succeeded (if attempted) OR if it was local_only
-        # AND the local list was updated (or already contained the ID).
-        return backend_success or local_only
+        # --- Local Revocation (only if backend succeeded or local_only=True) --- #
+        if local_only or backend_success:
+            if credential_id in self._revoked_ids:
+                logger.info(f"Credential {credential_id} is already revoked locally.")
+                # Already revoked locally, log the attempt again for audit trail
+                audit_logger.log_credential_revocation(credential_id=credential_id, revoked_by="local_user", backend_revoked=backend_success)
+                return True # Considered success
+            else:
+                self._revoked_ids.add(credential_id)
+                self._save_revocation_list()
+                logger.info(f"Credential {credential_id} added to local revocation list.")
+                audit_logger.log_credential_revocation(credential_id=credential_id, revoked_by="local_user", backend_revoked=backend_success)
+                return True
+        else:
+            # This case means backend was attempted but failed (and not local_only)
+            return False
     
     def rotate_credential(self, agent_id: str, credential_type: str, local_only: bool = False) -> Dict[str, Any]:
-        """Rotate a long-lived credential (placeholder).
+        """Rotate the agent's long-term identity key (Ed25519).
 
-        Intended to rotate the agent's identity key (Ed25519).
-        If `local_only` is True, performs rotation locally (placeholder).
-        If `local_only` is False (default), attempts backend rotation (placeholder).
-        Currently, only local placeholder logic exists.
+        Updates the local identity file first, then attempts to notify the backend
+        if `local_only` is False and the backend is configured.
 
         Args:
             agent_id: The identifier of the agent whose identity should be rotated.
-            credential_type: The type of credential to rotate (e.g., "agent-identity").
-            local_only: If True, force local-only placeholder rotation.
+            credential_type: Must be "agent-identity".
+            local_only: If True, skip backend notification attempt.
 
         Returns:
-            A dictionary with placeholder details about the rotation.
+            A dictionary with status and the agent_id.
 
         Raises:
-            NotImplementedError: If the type is not 'agent-identity' (when implemented).
-            VaultError: If identity file operations fail (when implemented).
-            ApiError: If backend communication fails (when implemented).
+            NotImplementedError: If the type is not 'agent-identity'.
+            VaultError: If the local identity file cannot be read/written.
+            ApiError: If the backend notification fails.
+            ValueError: If backend URL/token missing when needed.
         """
         if credential_type != "agent-identity":
-            # This check is also in the command, but good to have defense-in-depth
-            raise NotImplementedError(f"Rotation for type '{credential_type}' is not implemented.")
+            raise NotImplementedError(f"Rotation for type '{credential_type}' is not supported.")
 
-        # --- Backend Rotation Attempt (Placeholder) --- #
-        backend_success = False
-        if not local_only:
-            # TODO: Implement backend rotation logic.
-            # Requires finding the agent's current public key to identify it to the backend?
-            print(f"[DEBUG] (Placeholder) Would attempt backend rotation for agent={agent_id}")
-            # Simulate backend success for now
-            backend_success = True
-            # if not backend_api.rotate(agent_id, ...):
-            #     print(f"[Error] Backend rotation failed for agent {agent_id}", file=sys.stderr)
-            #     # Decide on fallback behavior
-            # else:
-            #     backend_success = True
+        logger.info(f"Initiating local rotation for agent identity: {agent_id}")
 
-        # --- Local Rotation (Placeholder) --- #
-        # TODO: Implement actual local rotation:
-        # 1. Find identity file: self.identity_store_path / f"{agent_id}.json"
-        # 2. Check if file exists.
-        # 3. Generate new Ed25519 keys using self.key_manager.generate_identity_keypair()
-        # 4. Read the existing identity file.
-        # 5. Update the private_key and public_key fields.
-        # 6. Add/update a 'rotated_at' timestamp.
-        # 7. Write the updated identity back to the file.
-        # 8. Handle potential backup of the old key.
-        # 9. Log the rotation event using self.audit_logger.log_credential_rotation(...)
-        
-        print(f"[DEBUG] (Placeholder) Simulating local rotation for agent={agent_id}")
-        
-        # Placeholder result
-        new_id = f"key-{uuid.uuid4()}" # Placeholder for new key identifier/reference
-        rotation_time = int(time.time())
-        
-        # Log the placeholder event
-        self.audit_logger.log_credential_rotation(
-            agent_id=agent_id, 
-            credential_type=credential_type, 
-            new_credential_ref=new_id, # Pass placeholder ref
-            rotated_by="local_user" # Placeholder user
+        # --- Local Rotation --- #
+        identity_file = self.identity_store_path / f"{agent_id}.json"
+        if not identity_file.exists():
+             audit_logger.log_credential_rotation_failed(agent_id=agent_id, credential_type=credential_type, reason="Local identity file not found")
+             raise exceptions.VaultError(f"Local identity file not found for agent {agent_id}")
+
+        # 1. Generate new keys
+        new_keys = self.key_manager.generate_identity_keypair()
+        new_public_key_b64 = new_keys["public_key"]
+        new_private_key_b64 = new_keys["private_key"]
+        logger.debug(f"Generated new identity keys for agent {agent_id}")
+
+        # 2. Read existing identity and update
+        try:
+            with open(identity_file, 'r') as f:
+                identity = json.load(f)
+            
+            # Optional: Backup old key?
+            # old_private_key = identity.get("private_key")
+            # old_public_key = identity.get("public_key")
+
+            identity["private_key"] = new_private_key_b64
+            identity["public_key"] = new_public_key_b64
+            rotated_at_ts = int(time.time()) # Define timestamp before updating dict
+            identity["rotated_at"] = rotated_at_ts # Update identity dict
+
+        except (json.JSONDecodeError, IOError, KeyError) as e:
+            audit_logger.log_credential_rotation_failed(agent_id=agent_id, credential_type=credential_type, reason=f"Error reading local identity: {e}")
+            raise exceptions.VaultError(f"Failed to read or parse identity for {agent_id}: {e}") from e
+
+        # 3. Write updated identity back to file
+        try:
+            # Write to temp file first for atomicity?
+            with open(identity_file, 'w') as f:
+                json.dump(identity, f, indent=2)
+            identity_file.chmod(0o600) # Ensure permissions
+            logger.info(f"Successfully updated local identity file for agent {agent_id}")
+        except IOError as e:
+            audit_logger.log_credential_rotation_failed(agent_id=agent_id, credential_type=credential_type, reason=f"Error writing local identity: {e}")
+            raise exceptions.VaultError(f"Failed to save rotated identity for {agent_id}: {e}") from e
+
+        # --- Backend Notification Attempt --- #
+        backend_notified = False
+        if not local_only and self.backend_url and self.backend_api_token:
+            logger.info(f"Attempting backend notification for key rotation: agent={agent_id}")
+            try:
+                payload = {
+                    # Backend expects key bytes encoded in base64 in the request
+                    "new_public_key": new_public_key_b64
+                }
+                response_data = self._request(
+                    "POST",
+                    f"/api/v1/vault/agents/{agent_id}/rotate-identity",
+                    data=payload,
+                    is_backend_request=True
+                )
+                # Expect 204 No Content on success
+                # _handle_response converts 204 to {"status": "success"...}
+                if response_data.get("status") == "success":
+                     logger.info(f"Backend successfully notified of key rotation for agent {agent_id}")
+                     backend_notified = True
+                else:
+                    # This case should ideally not happen due to _handle_response raising HTTPError
+                    logger.error(f"Backend returned unexpected response for rotation: {response_data}")
+                    # Decide how critical backend notification is. Re-raise the original error.
+                    raise # Re-raise the original caught exception (e)
+
+            except (exceptions.ApiError, ValueError, requests.exceptions.RequestException) as e:
+                 logger.error(f"Backend notification failed for agent {agent_id}: {e}")
+                 audit_logger.log_credential_rotation_failed(agent_id=agent_id, credential_type=credential_type, reason=f"Backend notification error: {e}")
+                 # Decide how critical backend notification is. Re-raise the original error.
+                 raise # Re-raise the original caught exception (e)
+
+        elif not local_only:
+             logger.warning("Backend not configured (URL or Token missing). Cannot notify backend of rotation.")
+             # Should we raise an error here if backend sync is expected?
+             # For now, proceed with local rotation complete status, but log warning.
+
+        # --- Log Final Rotation Event --- #
+        audit_logger.log_credential_rotation(
+            agent_id=agent_id,
+            credential_type=credential_type,
+            new_credential_ref=f"key_rotated_{rotated_at_ts}", # Use timestamp var
+            rotated_by="local_user",
+            backend_notified=backend_notified
         )
-        
+
         return {
-            "id": new_id,
-            "rotated_at": rotation_time,
-            "agent_id": agent_id, # Include agent_id for context
-            "status": "Simulated rotation complete (placeholder)"
+            "agent_id": agent_id,
+            "status": "Local rotation complete",
+            "backend_notified": backend_notified
         }
 
     # --- Local Verification --- #
