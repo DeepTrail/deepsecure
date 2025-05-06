@@ -16,12 +16,45 @@ logger = logging.getLogger(__name__)
 
 # Use AgentSchema for UpdateSchemaType for now
 class CRUDAgent(CRUDBase[AgentModel, AgentCreate, AgentSchema]):
-    def get_by_agent_id(self, db: Session, *, agent_id: str) -> Optional[AgentModel]: # Return type is Model
-        """Fetch an agent by its unique agent_id."""
+    """CRUD operations for Agent models.
+
+    Handles the specific logic for creating agents, including parsing and
+    storing the public key bytes from the input SSH-formatted string.
+    """
+    def get_by_agent_id(self, db: Session, *, agent_id: str) -> Optional[AgentModel]:
+        """Fetch an agent by its unique agent_id.
+
+        Args:
+            db: The database session.
+            agent_id: The agent ID to search for.
+
+        Returns:
+            The AgentModel instance if found, otherwise None.
+        """
         return db.query(self.model).filter(self.model.agent_id == agent_id).first()
 
     def create(self, db: Session, *, obj_in: AgentCreate) -> AgentModel:
-        """Overrides base create to handle public key conversion."""
+        """Overrides base create to handle public key conversion from SSH string to bytes.
+
+        Parses the `current_public_key` string (expecting format like
+        "ssh-ed25519 AAA... comment" or just the Base64 part "AAA..."),
+        decodes the Base64 key blob, extracts the raw 32-byte Ed25519 key,
+        and stores it in the `current_public_key` column of the database model.
+
+        Special handling exists for test keys defined in `test_agents.py` which
+        results in a dummy key (b'A'*32) being stored instead of attempting
+        to parse the malformed test key structure.
+
+        Args:
+            db: The database session.
+            obj_in: The AgentCreate schema object containing input data.
+
+        Returns:
+            The newly created AgentModel instance.
+
+        Raises:
+            ValueError: If the public key cannot be decoded or parsed (except for test keys).
+        """
         # Validate and get bytes (validator logic is complex, reuse simpler extraction here)
         try:
             logger.info(f"Processing public key: {obj_in.current_public_key}")

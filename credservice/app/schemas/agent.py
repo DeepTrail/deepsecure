@@ -199,4 +199,4 @@ class Agent(BaseModel): # Define all fields explicitly if not inheriting Base
 # Schema for agent rotation request
 class AgentRotateRequest(BaseModel):
     """Schema for the request body when rotating an agent's identity key."""
-    new_public_key: str # Base64 encoded representation 
+    new_public_key: str = Field(..., description="Base64 encoded raw Ed25519 public key bytes (32 bytes).", example="Base64EncodedEd25519PublicKeyBytes") 

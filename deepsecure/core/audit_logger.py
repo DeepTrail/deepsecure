@@ -94,56 +94,90 @@ class AuditLogger:
             self.logger.error(f"Failed to log structured event: {e}. Event details: {details}")
             # TODO: Consider logging the raw details in a fallback format.
     
-    def log_credential_issuance(self, credential_id: str, agent_id: str, 
-                               scope: str, ttl: str) -> None:
+    def log_credential_issuance(self, credential_id: str, agent_id: str,
+                               scope: str, ttl: str,
+                               backend_issued: Optional[bool] = None) -> None:
         """
         Log a specific event for credential issuance.
-        
+
         Args:
             credential_id: The unique ID of the issued credential.
             agent_id: The ID of the agent the credential was issued to.
             scope: The scope string granted to the credential.
             ttl: The time-to-live string specified for the credential.
+            backend_issued: Optional flag indicating if issued via backend.
         """
-        self.log_event("credential_issue", {
+        details = {
             "credential_id": credential_id,
             "agent_id": agent_id,
             "scope": scope,
             "ttl": ttl
-            # TODO: Add origin context details if relevant for auditing.
-        })
+        }
+        if backend_issued is not None:
+            details["backend_issued"] = backend_issued
+        self.log_event("credential_issue", details)
     
-    def log_credential_revocation(self, credential_id: str, revoked_by: str) -> None:
+    def log_credential_revocation(self, credential_id: str, revoked_by: str,
+                               backend_revoked: Optional[bool] = None) -> None:
         """
         Log a specific event for credential revocation.
-        
+
         Args:
             credential_id: The unique ID of the credential being revoked.
-            revoked_by: Identifier for the entity initiating the revocation 
-                        (e.g., user ID, system process).
+            revoked_by: Identifier for the entity initiating the revocation.
+            backend_revoked: Optional flag indicating if revoked via backend.
         """
-        self.log_event("credential_revoke", {
+        details = {
             "credential_id": credential_id,
             "revoked_by": revoked_by
-            # TODO: Add reason for revocation if available.
-        })
+        }
+        if backend_revoked is not None:
+            details["backend_revoked"] = backend_revoked
+        self.log_event("credential_revoke", details)
 
-    def log_credential_rotation(self, agent_id: str, credential_type: str, 
-                               new_credential_ref: str, rotated_by: str) -> None:
+    def log_credential_rotation(self, agent_id: str, credential_type: str,
+                               new_credential_ref: str, rotated_by: str,
+                               backend_notified: Optional[bool] = None) -> None:
         """Log a specific event for credential rotation.
 
         Args:
             agent_id: The ID of the agent whose credential/key was rotated.
             credential_type: The type of credential rotated (e.g., 'agent-identity').
-            new_credential_ref: A reference to the new credential/key 
-                                (e.g., new key ID, certificate serial).
+            new_credential_ref: A reference to the new credential/key.
             rotated_by: Identifier for the entity initiating the rotation.
+            backend_notified: Optional flag indicating if backend was notified.
         """
-        self.log_event("credential_rotate", {
+        details = {
             "agent_id": agent_id,
             "credential_type": credential_type,
             "new_credential_ref": new_credential_ref,
             "rotated_by": rotated_by
+        }
+        if backend_notified is not None:
+            details["backend_notified"] = backend_notified
+        self.log_event("credential_rotate", details)
+
+    def log_credential_issuance_failed(self, agent_id: str, scope: str, reason: str) -> None:
+        """Log a failed credential issuance attempt."""
+        self.log_event("credential_issue_failed", {
+            "agent_id": agent_id,
+            "scope": scope,
+            "reason": reason
+        })
+
+    def log_credential_revocation_failed(self, credential_id: str, reason: str) -> None:
+        """Log a failed credential revocation attempt."""
+        self.log_event("credential_revoke_failed", {
+            "credential_id": credential_id,
+            "reason": reason
+        })
+
+    def log_credential_rotation_failed(self, agent_id: str, credential_type: str, reason: str) -> None:
+        """Log a failed credential rotation attempt."""
+        self.log_event("credential_rotate_failed", {
+            "agent_id": agent_id,
+            "credential_type": credential_type,
+            "reason": reason
         })
 
 # Singleton instance for easy global access.

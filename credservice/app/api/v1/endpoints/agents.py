@@ -16,9 +16,18 @@ router = APIRouter()
 def register_agent(agent_in: schemas.AgentCreate, db: DbDep, request: Request):
     """Register a new agent in the system.
 
-    This endpoint allows a new agent (identified by its unique agent_id
-    and public key) to be recorded.
-    Raises HTTPException 400 if agent ID already exists.
+    This endpoint allows a new agent (identified by its unique `agent_id`
+    and public key) to be recorded in the database.
+
+    Args:
+        agent_in: Input data containing `agent_id` and `current_public_key`.
+        db: Database session dependency.
+        request: The incoming request object (unused here but available).
+
+    Raises:
+        HTTPException 400: If an agent with the same `agent_id` already exists,
+                           or if there is a database constraint violation.
+        HTTPException 500: If an unexpected error occurs during agent creation.
     """
     # Check if agent already exists
     existing_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_in.agent_id)
@@ -59,7 +68,18 @@ def register_agent(agent_in: schemas.AgentCreate, db: DbDep, request: Request):
 # Add other agent-related endpoints here later (e.g., GET /agents/{agent_id})
 @router.get("/{agent_id}", response_model=schemas.Agent)
 def read_agent(agent_id: str, db: DbDep):
-    """Get agent details by agent_id."""
+    """Get agent details by agent_id.
+
+    Args:
+        agent_id: The unique identifier of the agent to retrieve.
+        db: Database session dependency.
+
+    Returns:
+        The Agent schema object if found.
+
+    Raises:
+        HTTPException 404: If no agent with the given `agent_id` is found.
+    """
     db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
     if db_agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
