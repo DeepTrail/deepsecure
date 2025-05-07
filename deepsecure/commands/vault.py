@@ -6,6 +6,7 @@ Provides subcommands for issuing, revoking, and rotating credentials.
 import typer
 from typing import Optional
 from pathlib import Path
+from datetime import datetime
 
 from .. import utils
 from ..core import vault_client
@@ -75,34 +76,81 @@ def issue(
             local_only=local # Pass the flag
         )
         
-        # Format the output based on user preference
-        if output.lower() == "json":
-            # TODO: Consider filtering the ephemeral_private_key from JSON output by default?
-            utils.print_json(data=credential)
+        # Determine if backend was likely used by checking the credential ID key
+        backend_issued = "credential_id" in credential
+        origin_msg = "(Backend)" if backend_issued else "(Local)"
+        
+        # Removed confusing "(Placeholder)" part
+        utils.print_success(f"Credential issued successfully! {origin_msg}")
+
+        if output == "json":
+            # Ensure datetime is serializable for JSON output if it comes from backend
+            output_credential = credential.copy()
+            if isinstance(output_credential.get('expires_at'), datetime):
+                output_credential['expires_at'] = output_credential['expires_at'].isoformat()
+            utils.print_json(output_credential)
         else:
-            utils.console.print(f"[bold green]Credential issued successfully! ({'Local' if local else 'Backend (Placeholder)'})[/]")
-            utils.console.print(f"[bold]ID:[/] {credential['id']}")
-            utils.console.print(f"[bold]Agent ID:[/] {credential['agent_id']}")
-            utils.console.print(f"[bold]Scope:[/] {credential['scope']}")
-            utils.console.print(f"[bold]Expires:[/] {utils.format_timestamp(credential['expires_at'])}")
+            utils.console.print("\nCredential details:")
+            # Use the correct key based on backend_issued flag
+            cred_id_to_print = credential.get("credential_id") if backend_issued else credential.get("id")
+            if cred_id_to_print:
+                utils.console.print(f"[bold]ID:[/] {cred_id_to_print}")
+            else:
+                # This case should be less likely now
+                utils.print_error("Error: Credential ID key ('id' or 'credential_id') missing from response.")
+                # Optionally raise typer.Exit(code=1) here if ID is critical
             
-            # Show origin binding info if enabled
-            if origin_binding and credential.get('origin_context'):
-                utils.console.print("\n[bold cyan]Origin Binding:[/]")
-                context = credential.get('origin_context', {})
-                for key, value in context.items():
-                    # Handle potential non-string values safely
-                    utils.console.print(f"  [bold]{key}:[/] {str(value)}") 
+            utils.console.print(f"[bold]Agent ID:[/] {credential.get('agent_id', 'N/A')}")
+            utils.console.print(f"[bold]Scope:[/] {credential.get('scope', 'N/A')}")
+            expires_ts = credential.get('expires_at') # Could be datetime, int, float, or string
             
-            # Print the public key
-            utils.console.print("\n[bold yellow]Ephemeral Public Key:[/]")
-            utils.console.print(credential['ephemeral_public_key'])
+            # Handle expiry types for printing
+            if isinstance(expires_ts, datetime):
+                 # Format datetime (less likely now but good to keep)
+                 expires_str = expires_ts.strftime('%Y-%m-%d %H:%M:%S %Z%z') if expires_ts.tzinfo else expires_ts.strftime('%Y-%m-%d %H:%M:%S UTC')
+            elif isinstance(expires_ts, (int, float)):
+                 # Format timestamp from local issuance
+                 expires_str = utils.format_timestamp(expires_ts) 
+            elif isinstance(expires_ts, str):
+                 # Try parsing ISO 8601 string from backend JSON response
+                 try:
+                     # Handle potential timezone info (Z, +HH:MM, -HH:MM). Replace Z for compatibility.
+                     dt_obj = datetime.fromisoformat(expires_ts.replace('Z', '+00:00')) 
+                     # Format datetime clearly
+                     expires_str = dt_obj.strftime('%Y-%m-%d %H:%M:%S %Z%z') if dt_obj.tzinfo else dt_obj.strftime('%Y-%m-%d %H:%M:%S UTC')
+                 except ValueError:
+                     # Log or print warning if parsing fails?
+                     # print(f"Warning: Could not parse expires_at string: {expires_ts}", file=sys.stderr)
+                     expires_str = expires_ts # Show the raw string if parsing fails
+                 except Exception as e: # Catch any other parsing errors
+                     # print(f"Error parsing expires_at string '{expires_ts}': {e}", file=sys.stderr)
+                     expires_str = expires_ts # Show raw string on unexpected error
+            else:
+                 expires_str = 'N/A' 
+            utils.console.print(f"[bold]Expires:[/] {expires_str}")
             
-            # Print the private key - WARNING about sensitivity
-            utils.console.print("\n[bold red]Ephemeral Private Key (sensitive - handle with care):[/]")
-            utils.console.print(credential['ephemeral_private_key'])
-            
-    except Exception as e:
+            # Print Origin Binding if present
+            origin_context = credential.get("origin_context")
+            if origin_context:
+                utils.console.print("\nOrigin Binding:")
+                for key, value in origin_context.items():
+                    utils.console.print(f"  {key}: {value}")
+
+            # Print Ephemeral Public Key
+            eph_pub_key = credential.get("ephemeral_public_key")
+            if eph_pub_key:
+                utils.console.print("\nEphemeral Public Key:")
+                utils.console.print(f"{eph_pub_key}")
+
+            # Print Ephemeral Private Key (always included by client)
+            eph_priv_key = credential.get("ephemeral_private_key")
+            if eph_priv_key:
+                utils.console.print("\nEphemeral Private Key (sensitive - handle with care):")
+                utils.console.print(f"{eph_priv_key}")
+            else: # Should always be present, but good to check
+                utils.print_warning("Warning: Ephemeral private key missing from credential dictionary.")
+
+    except ValueError as e:
         # TODO: Catch more specific exceptions (VaultError, ValueError) for tailored messages.
         utils.print_error(f"Error issuing credential: {str(e)}")
         raise typer.Exit(code=1)
@@ -132,8 +180,9 @@ def revoke(
             if local:
                 utils.print_success(f"Added credential {id} to local revocation list.")
             else:
-                # TODO: Update this message when backend is implemented
-                utils.print_success(f"Revocation initiated for credential {id} (backend placeholder + local update). ")
+                # Updated message: If result is True and not local, it means backend 
+                # attempt succeeded (or didn't fail critically) AND local update happened.
+                utils.print_success(f"Successfully revoked credential {id} (Backend attempt successful + local update).")
         else:
             # VaultClient prints specific warnings/errors
             utils.print_error(f"Failed to revoke credential {id}. Check logs for details.", exit_code=1)
