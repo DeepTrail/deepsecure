@@ -103,7 +103,7 @@ class VaultClient(base_client.BaseClient):
         
     # --- Identity and Context Management (mostly unchanged) --- #
     
-    def _get_agent_identity(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
+    def _get_agent_identity(self, agent_id: Optional[str] = None) -> (Dict[str, Any], bool):
         """
         Get or create an agent identity, storing it locally.
 
@@ -116,12 +116,17 @@ class VaultClient(base_client.BaseClient):
                       If None, a new UUID-based ID is generated.
 
         Returns:
-            A dictionary containing the agent's identity details:
-            {'id': str, 'created_at': int, 'private_key': str, 'public_key': str}
+            A tuple containing:
+                - A dictionary with the agent's identity details:
+                  {'id': str, 'created_at': int, 'private_key': str, 'public_key': str}
+                - A boolean, True if the identity was newly created, False otherwise.
         """
+        was_newly_created = False # Flag to track if new identity is made
         if agent_id is None:
             # Generate a new random agent ID
             agent_id = f"agent-{uuid.uuid4()}"
+            # If agent_id was None, it implies we intend to create a new one,
+            # but we still check existence below in case of a collision or manual file placement.
         
         # Check if we have this identity stored
         identity_file = self.identity_store_path / f"{agent_id}.json"
@@ -136,6 +141,7 @@ class VaultClient(base_client.BaseClient):
                 raise exceptions.VaultError(f"Failed to load identity for {agent_id}: {e}") from e
         else:
             # Create a new identity
+            was_newly_created = True # Set flag
             keys = self.key_manager.generate_identity_keypair()
             
             identity = {
@@ -153,8 +159,38 @@ class VaultClient(base_client.BaseClient):
             except IOError as e:
                 raise exceptions.VaultError(f"Failed to save identity for {agent_id}: {e}") from e
         
-        return identity
+        return identity, was_newly_created # Return flag along with identity
     
+    def _register_agent_with_backend(self, agent_id: str, public_key_b64: str) -> bool:
+        """Register a new agent with the backend service."""
+        if not (self.backend_url and self.backend_api_token):
+            logger.warning("Backend not configured. Cannot register agent with backend.")
+            return False
+
+        logger.info(f"Attempting to register new agent {agent_id} with backend.")
+        payload = {
+            "agent_id": agent_id,
+            "current_public_key": public_key_b64 
+        }
+        try:
+            response_data = self._request(
+                "POST",
+                "/api/v1/agents",
+                data=payload,
+                is_backend_request=True
+            )
+            logger.info(f"Successfully registered agent {agent_id} with backend. Response: {response_data}")
+            return True
+        except exceptions.ApiError as e:
+            logger.error(f"Failed to register agent {agent_id} with backend: {e}", exc_info=True)
+            if e.status_code == 409: # HTTP 409 Conflict
+                logger.warning(f"Agent {agent_id} already exists on backend or conflict occurred. Proceeding as if registered.")
+                return True 
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error registering agent {agent_id} with backend: {e}", exc_info=True)
+            return False
+
     def _capture_origin_context(self) -> Dict[str, Any]:
         """
         Capture information about the credential issuance origin environment.
@@ -321,14 +357,14 @@ class VaultClient(base_client.BaseClient):
         credential_id = f"cred-{uuid.uuid4()}"
         
         credential = {
-            "id": credential_id,
+            "credential_id": credential_id,
             "agent_id": agent_id,
             "ephemeral_public_key": ephemeral_public_key,
             "signature": signature,
             "scope": scope,
             "issued_at": int(time.time()),
             "expires_at": expiry,
-            "origin_context": origin_context # Empty if origin_binding=False
+            "origin_context": origin_context
         }
         
         return credential
@@ -363,8 +399,25 @@ class VaultClient(base_client.BaseClient):
             ApiError: If backend communication fails.
         """
         # 1. Get or create agent identity (needed for both local and backend)
-        agent_identity = self._get_agent_identity(agent_id)
+        agent_identity, was_newly_created = self._get_agent_identity(agent_id)
         current_agent_id = agent_identity['id']
+        current_public_key_b64 = agent_identity['public_key'] # Get public key for registration
+
+        # --- Attempt Agent Registration if New and Backend Mode ---
+        if was_newly_created and not local_only and self.backend_url and self.backend_api_token:
+            logger.info(f"New agent {current_agent_id} created locally, attempting backend registration.")
+            # Pass the Ed25519 public key for registration
+            registration_successful = self._register_agent_with_backend(current_agent_id, current_public_key_b64)
+            if not registration_successful:
+                # If registration fails, log a warning and fall back to local issuance behavior.
+                # This maintains the ability to issue credentials even if backend registration has an issue,
+                # though such credentials won't be verifiable by a backend that doesn't know the agent.
+                logger.warning(
+                    f"Backend registration for new agent {current_agent_id} failed. Proceeding with local issuance, but this agent may not be known to the backend."
+                )
+                # To strictly enforce backend registration, you might choose to raise an error here instead.
+                # For now, we allow fallback to local to ensure CLI can still issue something.
+                local_only = True # Force local issuance if registration failed
 
         # 2. Generate ephemeral keypair (X25519) (needed for both)
         ephemeral_keys = self.key_manager.generate_ephemeral_keypair()
@@ -472,7 +525,7 @@ class VaultClient(base_client.BaseClient):
 
         # Log the local issuance event
         audit_logger.log_credential_issuance(
-            credential_id=credential["id"],
+            credential_id=credential["credential_id"],
             agent_id=current_agent_id,
             scope=scope,
             ttl=ttl, # Log original TTL string
@@ -700,10 +753,10 @@ class VaultClient(base_client.BaseClient):
             VaultError: If the agent identity cannot be found or loaded.
             ValueError: If the credential format is invalid.
         """
-        if not all(k in credential for k in ["id", "agent_id", "ephemeral_public_key", "signature", "expires_at"]):
+        if not all(k in credential for k in ["credential_id", "agent_id", "ephemeral_public_key", "signature", "expires_at"]):
             raise ValueError("Credential dictionary is missing required fields.")
 
-        cred_id = credential["id"]
+        cred_id = credential["credential_id"]
         agent_id = credential["agent_id"]
         ephemeral_pub_key = credential["ephemeral_public_key"]
         signature = credential["signature"]
@@ -722,7 +775,7 @@ class VaultClient(base_client.BaseClient):
 
         # 3. Get Agent Identity Public Key
         try:
-            agent_identity = self._get_agent_identity(agent_id)
+            agent_identity, _ = self._get_agent_identity(agent_id)
             identity_public_key = agent_identity["public_key"]
         except exceptions.VaultError as e:
             print(f"[Verification Failed] Could not load identity for agent {agent_id}: {e}", file=sys.stderr)
