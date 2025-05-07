@@ -80,53 +80,42 @@ def issue(
         backend_issued = "credential_id" in credential
         origin_msg = "(Backend)" if backend_issued else "(Local)"
         
-        # Removed confusing "(Placeholder)" part
-        utils.print_success(f"Credential issued successfully! {origin_msg}")
-
         if output == "json":
-            # Ensure datetime is serializable for JSON output if it comes from backend
+            # JSON output: ONLY print the JSON
             output_credential = credential.copy()
             if isinstance(output_credential.get('expires_at'), datetime):
                 output_credential['expires_at'] = output_credential['expires_at'].isoformat()
             utils.print_json(output_credential)
         else:
+            # Text output: Print success message AND details
+            utils.print_success(f"Credential issued successfully! {origin_msg}")
             utils.console.print("\nCredential details:")
             # Use the correct key based on backend_issued flag
             cred_id_to_print = credential.get("credential_id") if backend_issued else credential.get("id")
             if cred_id_to_print:
                 utils.console.print(f"[bold]ID:[/] {cred_id_to_print}")
             else:
-                # This case should be less likely now
                 utils.print_error("Error: Credential ID key ('id' or 'credential_id') missing from response.")
-                # Optionally raise typer.Exit(code=1) here if ID is critical
             
             utils.console.print(f"[bold]Agent ID:[/] {credential.get('agent_id', 'N/A')}")
             utils.console.print(f"[bold]Scope:[/] {credential.get('scope', 'N/A')}")
-            expires_ts = credential.get('expires_at') # Could be datetime, int, float, or string
+            expires_ts = credential.get('expires_at')
             
-            # Handle expiry types for printing
+            # Handle both expiry types for printing
             if isinstance(expires_ts, datetime):
-                 # Format datetime (less likely now but good to keep)
-                 expires_str = expires_ts.strftime('%Y-%m-%d %H:%M:%S %Z%z') if expires_ts.tzinfo else expires_ts.strftime('%Y-%m-%d %H:%M:%S UTC')
+                expires_str = expires_ts.strftime('%Y-%m-%d %H:%M:%S %Z%z') if expires_ts.tzinfo else expires_ts.strftime('%Y-%m-%d %H:%M:%S UTC')
             elif isinstance(expires_ts, (int, float)):
-                 # Format timestamp from local issuance
-                 expires_str = utils.format_timestamp(expires_ts) 
+                expires_str = utils.format_timestamp(expires_ts)
             elif isinstance(expires_ts, str):
-                 # Try parsing ISO 8601 string from backend JSON response
-                 try:
-                     # Handle potential timezone info (Z, +HH:MM, -HH:MM). Replace Z for compatibility.
-                     dt_obj = datetime.fromisoformat(expires_ts.replace('Z', '+00:00')) 
-                     # Format datetime clearly
-                     expires_str = dt_obj.strftime('%Y-%m-%d %H:%M:%S %Z%z') if dt_obj.tzinfo else dt_obj.strftime('%Y-%m-%d %H:%M:%S UTC')
-                 except ValueError:
-                     # Log or print warning if parsing fails?
-                     # print(f"Warning: Could not parse expires_at string: {expires_ts}", file=sys.stderr)
-                     expires_str = expires_ts # Show the raw string if parsing fails
-                 except Exception as e: # Catch any other parsing errors
-                     # print(f"Error parsing expires_at string '{expires_ts}': {e}", file=sys.stderr)
-                     expires_str = expires_ts # Show raw string on unexpected error
+                try:
+                    dt_obj = datetime.fromisoformat(expires_ts.replace('Z', '+00:00'))
+                    expires_str = dt_obj.strftime('%Y-%m-%d %H:%M:%S %Z%z') if dt_obj.tzinfo else dt_obj.strftime('%Y-%m-%d %H:%M:%S UTC')
+                except ValueError:
+                    expires_str = expires_ts
+                except Exception:
+                    expires_str = expires_ts
             else:
-                 expires_str = 'N/A' 
+                expires_str = 'N/A'
             utils.console.print(f"[bold]Expires:[/] {expires_str}")
             
             # Print Origin Binding if present
@@ -142,12 +131,12 @@ def issue(
                 utils.console.print("\nEphemeral Public Key:")
                 utils.console.print(f"{eph_pub_key}")
 
-            # Print Ephemeral Private Key (always included by client)
+            # Print Ephemeral Private Key
             eph_priv_key = credential.get("ephemeral_private_key")
             if eph_priv_key:
                 utils.console.print("\nEphemeral Private Key (sensitive - handle with care):")
                 utils.console.print(f"{eph_priv_key}")
-            else: # Should always be present, but good to check
+            else:
                 utils.print_warning("Warning: Ephemeral private key missing from credential dictionary.")
 
     except ValueError as e:
