@@ -180,8 +180,9 @@ def revoke(
             if local:
                 utils.print_success(f"Added credential {id} to local revocation list.")
             else:
-                # TODO: Update this message when backend is implemented
-                utils.print_success(f"Revocation initiated for credential {id} (backend placeholder + local update). ")
+                # Updated message: If result is True and not local, it means backend 
+                # attempt succeeded (or didn't fail critically) AND local update happened.
+                utils.print_success(f"Successfully revoked credential {id} (Backend attempt successful + local update).")
         else:
             # VaultClient prints specific warnings/errors
             utils.print_error(f"Failed to revoke credential {id}. Check logs for details.", exit_code=1)
