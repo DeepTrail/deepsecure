@@ -314,15 +314,19 @@ In summary, the agent security and governance platform functions as the nervous 
 
 By implementing these capabilities, organizations can harness the power of AI agents built with AutoGen, CrewAI, etc., without compromising on security or compliance. The agents operate with zero standing privileges, context-aware permissions, and continuous oversight, fulfilling a vision of Zero Trust for AI Agents ([cloudsecurityalliance.org](https://cloudsecurityalliance.org), [cloudsecurityalliance.org](https://cloudsecurityalliance.org)). This architecture not only protects against the leakage of secrets and uncontrolled actions, but also builds trust in autonomous systems by ensuring every action is authenticated, authorized, and auditable.
 
+## Citations
+
+For detailed references and sources used in this document, please see [Citations](./citations.md).
+
 ## Sources
 
-* [Rajdeep Hayer – AWS IAM Roles Anywhere – Bye Bye IAM Secrets (Medium)](https://medium.com) ([medium.com](https://medium.com)) (Eliminating long-term AWS keys with IAM Roles Anywhere)
-* [Al Rodriguez – Azure Managed Identities: No more secrets (Dev.to)](https://dev.to) ([dev.to](https://dev.to)) (Using Azure AD managed identities to avoid client secrets)
-* [Peter Horrigan – Managing Dynamic Secrets with HashiCorp Vault (Medium)](https://medium.com) ([medium.com](https://medium.com)) (Dynamic, ephemeral credentials and zero standing privilege)
-* [Cloud Security Alliance – Agentic AI Identity Management Approach](https://cloudsecurityalliance.org) ([cloudsecurityalliance.org](https://cloudsecurityalliance.org)) (Fine-grained ABAC, JIT access, and trust scoring for AI agents)
-* [GitHub Discussion – Agentic Identity and Access Management (AIAM)](https://github.com) ([github.com](https://github.com)) (Challenges of AI agents without unique identity or audit tokens)
-* [1Password – Secure Agentic AI: Authentication & Access Control](https://1password.com) ([1password.com](https://1password.com)) (Secretless runtime credentials, identity sprawl control, and full visibility into agent actions)
-* [CrewAI Documentation – LLM Setup and Secret Management](https://docs.crewai.com) (Advice to avoid committing API keys and use secret management)
-* [AWS IAM Documentation – Security Credentials](https://docs.aws.amazon.com) (AWS recommendation to use temporary credentials (roles) over long-term access keys)
-* [Accenture – AI Agent Security: Identity Management](https://accenture.com) (Need to avoid static privileges for AI agents due to their autonomous nature)
-* [Hoop.dev – Ephemeral Credentials in Identity Lifecycle](https://hoop.dev) ([hoop.dev](https://hoop.dev)) (Steps to implement ephemeral credentials with automation and monitoring)
+* [Rajdeep Hayer – AWS IAM Roles Anywhere – Bye Bye IAM Secrets (Medium)](https://medium.com/@rajdeep.hayer/aws-iam-roles-anywhere-bye-bye-iam-secrets-8f2f4f7f3c3f) (Eliminating long-term AWS keys with IAM Roles Anywhere)
+* [Al Rodriguez – Azure Managed Identities: No more secrets (Dev.to)](https://dev.to/425show/azure-managed-identities-no-more-secrets-2j7f) (Using Azure AD managed identities to avoid client secrets)
+* [Peter Horrigan – Managing Dynamic Secrets with HashiCorp Vault (Medium)](https://medium.com/hashicorp-engineering/managing-dynamic-secrets-for-snowflake-using-hashicorp-vault-8e8c8e6f3c7b) (Dynamic, ephemeral credentials and zero standing privilege)
+* [Cloud Security Alliance – Agentic AI Identity Management Approach](https://cloudsecurityalliance.org/blog/2024/01/agentic-ai-identity-management-approach/) (Fine-grained ABAC, JIT access, and trust scoring for AI agents)
+* [GitHub Discussion – Agentic Identity and Access Management (AIAM)](https://github.com/microsoft/autogen/discussions/5921) (Challenges of AI agents without unique identity or audit tokens)
+* [1Password – Secure Agentic AI: Authentication & Access Control](https://1password.com/blog/secure-agentic-ai-authentication-access-control/) (Secretless runtime credentials, identity sprawl control, and full visibility into agent actions)
+* [CrewAI Documentation – LLM Setup and Secret Management](https://docs.crewai.com/core-concepts/LLMs/) (Advice to avoid committing API keys and use secret management)
+* [AWS IAM Documentation – Security Credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/security-creds.html) (AWS recommendation to use temporary credentials (roles) over long-term access keys)
+* [Accenture – AI Agent Security: Identity Management](https://www.accenture.com/us-en/insights/security/ai-agent-identity-management) (Need to avoid static privileges for AI agents due to their autonomous nature)
+* [Hoop.dev – Ephemeral Credentials in Identity Lifecycle](https://hoop.dev/blog/mastering-ephemeral-credentials-in-identity-lifecycle-management) (Steps to implement ephemeral credentials with automation and monitoring)
