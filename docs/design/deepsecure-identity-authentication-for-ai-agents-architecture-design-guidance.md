@@ -316,7 +316,7 @@ By implementing these capabilities, organizations can harness the power of AI ag
 
 ## Citations
 
-For detailed references and sources used in this document, please see [Citations](../../citations.md).
+For detailed references and sources used in this document, please see [Citations](./citations.md).
 
 ## Sources
 
