@@ -1,145 +1,179 @@
 # deepsecure/core/agent_client.py
 from typing import Optional, Dict, List, Any
-from pathlib import Path
-import uuid # For generating mock IDs
-import time # For mock timestamps
+import logging
 
-# Attempt to import utils from the correct relative path
-try:
-    from .. import utils
-except ImportError:
-    # This fallback might be needed if running this file directly for testing,
-    # though typically it's imported as part of the deepsecure package.
-    # A more robust solution would involve path manipulation or ensuring PYTHONPATH is set.
-    # For now, we'll assume it's imported correctly within the package.
-    # If utils are critical for placeholder to run standalone, this needs refinement.
-    class MockUtils:
-        def generate_id(self, length=8):
-            return str(uuid.uuid4())[:length]
-        def format_timestamp(self, ts):
-            return str(ts)
-        def now_epoch(self):
-            return time.time()
-        class MockConsole:
-            def print(self, msg):
-                print(msg)
-        console = MockConsole()
-    utils = MockUtils()
+from .base_client import BaseClient # Inherit from BaseClient
+from .. import utils # For logging or other utilities if needed
+from ..exceptions import ApiError # For raising specific API errors
 
+logger = logging.getLogger(__name__)
 
-# from .base_client import BaseClient # If you have a base client for HTTP requests
+class AgentClient(BaseClient):
+    """Client for interacting with the Agent Management API endpoints in credservice."""
 
-# class AgentClient(BaseClient): # Example if using a base client
-class AgentClient:
     def __init__(self):
-        # self.base_url = f"{self.settings.credservice_url}/api/v1/agents" # Example
-        # For now, no actual HTTP client initialization is needed for the placeholder
-        pass
+        super().__init__() # Initialize BaseClient
+        # self.service_name = "agents" # Or similar if BaseClient uses it for paths
+        self.api_prefix = "/api/v1/agents" # Define the common API prefix for agents
 
-    def register_agent(self, public_key_pem: str, name: Optional[str], description: Optional[str]) -> Dict[str, Any]:
-        """
-        Placeholder for registering an agent with the backend.
-        """
-        utils.console.print(f"[AgentClient-Placeholder] Registering agent: PK starts with {public_key_pem[:30] if public_key_pem else 'N/A'}..., Name: {name}")
-        
-        # Simulate backend generating an agent_id
-        agent_id = f"agent-{utils.generate_id(8)}"
-        
-        # Simulate fingerprint generation (very basic)
-        fingerprint = f"mock:fp:{utils.generate_id(12)}"
-        if public_key_pem: # rudimentary check
-            fingerprint = f"sha256:{utils.generate_id(8)}" # more "realistic" mock
+    def register_agent(self, public_key: str, name: Optional[str], description: Optional[str]) -> Dict[str, Any]:
+        """Register a new agent with the backend service.
 
-        response_data = {
-            "agent_id": agent_id,
+        Args:
+            public_key: Base64 encoded string of the raw Ed25519 public key.
+            name: Optional human-readable name for the agent.
+            description: Optional description for the agent.
+
+        Returns:
+            A dictionary representing the registered agent's details from the backend.
+
+        Raises:
+            ApiError: If the backend API call fails.
+        """
+        payload = {
+            "public_key": public_key,
             "name": name,
             "description": description,
-            "public_key_fingerprint": fingerprint,
-            "created_at": utils.format_timestamp(utils.now_epoch()),
-            "message": "Agent registered successfully (placeholder)."
         }
-        utils.console.print(f"[AgentClient-Placeholder] Mock response: {response_data}")
-        return response_data
-
-    def list_agents(self, local_identities: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
-        """
-        Placeholder for listing agents from the backend and combining with local ones.
-        """
-        utils.console.print(f"[AgentClient-Placeholder] Listing remote agents...")
+        # Remove None values from payload if backend expects them to be absent
+        payload = {k: v for k, v in payload.items() if v is not None}
         
-        # Simulate some remote agents
-        remote_agents = [
-            {
-                "agent_id": f"remote-agent-{utils.generate_id(4)}",
-                "name": "RemoteAgentAlpha",
-                "public_key_fingerprint": f"mock:fp:remote{utils.generate_id(4)}",
-                "status": "active",
-                "source": "remote", # To distinguish from local ones if merged
-                "created_at": utils.format_timestamp(utils.now_epoch() - 7200) # 2 hours ago
-            },
-            {
-                "agent_id": f"remote-agent-{utils.generate_id(4)}",
-                "name": "RemoteAgentBeta",
-                "public_key_fingerprint": f"mock:fp:remote{utils.generate_id(4)}",
-                "status": "inactive",
-                "source": "remote",
-                "created_at": utils.format_timestamp(utils.now_epoch() - 36000) # 10 hours ago
-            }
-        ]
-        utils.console.print(f"[AgentClient-Placeholder] Mock remote agents: {remote_agents}")
+        logger.info(f"Registering agent with backend. Name: {name}, PK starts with: {public_key[:20]}...")
+        try:
+            response_data = self._request(
+                method="POST",
+                path=f"{self.api_prefix}/", # Path for POST is typically the collection root
+                data=payload,
+                is_backend_request=True
+            )
+            logger.info(f"Agent registered successfully. Agent ID: {response_data.get('agent_id')}")
+            return response_data
+        except ApiError as e:
+            logger.error(f"Failed to register agent. Status: {e.status_code}, Detail: {e.message}")
+            raise # Re-raise the ApiError caught by _request or _handle_response
 
-        all_agents = list(remote_agents) # Make a copy
-        if local_identities:
-            utils.console.print(f"[AgentClient-Placeholder] Merging {len(local_identities)} local identities.")
-            # Ensure local identities have a 'source' field for consistency
-            for local_agent in local_identities:
-                local_agent['source'] = 'local'
-            all_agents.extend(local_identities)
-        
-        return all_agents
+    def list_agents(self, skip: int = 0, limit: int = 100) -> Dict[str, Any]: # Return type matches AgentList schema structure
+        """List agents from the backend service with pagination.
+
+        Args:
+            skip: Number of records to skip.
+            limit: Maximum number of records to return.
+
+        Returns:
+            A dictionary containing a list of agent details and a total count, 
+            matching the structure of credservice.schemas.agent.AgentList.
+
+        Raises:
+            ApiError: If the backend API call fails.
+        """
+        params = {"skip": skip, "limit": limit}
+        logger.info(f"Listing agents from backend. Skip: {skip}, Limit: {limit}")
+        try:
+            response_data = self._request(
+                method="GET",
+                path=f"{self.api_prefix}/",
+                params=params,
+                is_backend_request=True
+            )
+            # The backend is expected to return a dict like {"agents": [...], "total": ...}
+            # Ensure this client method returns what the CLI command expects.
+            # The placeholder client returned List[Dict], but actual backend returns AgentList model structure.
+            logger.info(f"Successfully fetched {len(response_data.get('agents', []))} agents. Total available: {response_data.get('total')}")
+            return response_data 
+        except ApiError as e:
+            logger.error(f"Failed to list agents. Status: {e.status_code}, Detail: {e.message}")
+            raise
 
     def describe_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Placeholder for describing a specific agent from the backend.
-        """
-        utils.console.print(f"[AgentClient-Placeholder] Describing agent: {agent_id}")
-        
-        # Simulate finding an agent by ID (very basic check)
-        if "remote-agent" in agent_id or "agent-" in agent_id: # Crude check for mock IDs
-            mock_agent_details = {
-                "agent_id": agent_id,
-                "name": f"Mock Agent {agent_id.split('-')[-1]}",
-                "description": "This is a detailed description from the mock service for this agent.",
-                "public_key": "ssh-ed25519 AAAA... (full public key from mock service)",
-                "public_key_fingerprint": f"mock:fp:{utils.generate_id(6)}{agent_id[-4:]}",
-                "status": "active" if "alpha" in agent_id.lower() or len(agent_id) % 2 == 0 else "inactive", # mock status
-                "created_at": utils.format_timestamp(utils.now_epoch() - (len(agent_id) * 1000)), # mock created_at
-                "last_seen_at": utils.format_timestamp(utils.now_epoch() - (len(agent_id) * 100)), # mock last_seen
-                "metadata": {
-                    "custom_info": "some_mock_value",
-                    "tags": ["mock", "placeholder"]
-                }
-            }
-            utils.console.print(f"[AgentClient-Placeholder] Mock details for {agent_id}: {mock_agent_details}")
-            return mock_agent_details
-        
-        utils.console.print(f"[AgentClient-Placeholder] Agent {agent_id} not found in mock service.")
-        return None
+        """Describe a specific agent by its ID from the backend service.
 
+        Args:
+            agent_id: The unique identifier of the agent.
 
-    def delete_agent(self, agent_id: str, revoke_credentials: bool) -> bool:
+        Returns:
+            A dictionary representing the agent's details, or None if not found (404).
+
+        Raises:
+            ApiError: If the backend API call fails for reasons other than 404.
         """
-        Placeholder for deleting an agent from the backend.
+        logger.info(f"Describing agent with ID: {agent_id} from backend.")
+        try:
+            response_data = self._request(
+                method="GET",
+                path=f"{self.api_prefix}/{agent_id}",
+                is_backend_request=True
+            )
+            logger.info(f"Successfully fetched details for agent ID: {agent_id}")
+            return response_data
+        except ApiError as e:
+            if e.status_code == 404:
+                logger.warning(f"Agent with ID {agent_id} not found in backend.")
+                return None # Return None for 404 as per common client patterns
+            logger.error(f"Failed to describe agent {agent_id}. Status: {e.status_code}, Detail: {e.message}")
+            raise # Re-raise for other errors
+
+    def update_agent(self, agent_id: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing agent on the backend service.
+
+        Args:
+            agent_id: The ID of the agent to update.
+            update_data: A dictionary containing fields to update (e.g., name, description, status).
+
+        Returns:
+            A dictionary representing the updated agent's details.
+
+        Raises:
+            ApiError: If the API call fails.
         """
-        utils.console.print(f"[AgentClient-Placeholder] Deleting agent: {agent_id}, Revoke credentials: {revoke_credentials}")
-        
-        # Simulate success/failure (e.g., based on agent_id pattern or just always succeed for placeholder)
-        if "non-deletable" in agent_id:
-            utils.console.print(f"[AgentClient-Placeholder] Mock simulating failure to delete agent {agent_id}.")
-            return False 
-        
-        utils.console.print(f"[AgentClient-Placeholder] Mock simulating successful deletion of agent {agent_id}.")
-        return True # Placeholder always succeeds unless specific condition met
+        logger.info(f"Updating agent {agent_id} with data: {update_data}")
+        try:
+            response_data = self._request(
+                method="PATCH", # Using PATCH for partial updates
+                path=f"{self.api_prefix}/{agent_id}",
+                data=update_data,
+                is_backend_request=True
+            )
+            logger.info(f"Successfully updated agent {agent_id}.")
+            return response_data
+        except ApiError as e:
+            logger.error(f"Failed to update agent {agent_id}. Status: {e.status_code}, Detail: {e.message}")
+            raise
+
+    def delete_agent(self, agent_id: str) -> bool:
+        """Delete an agent from the backend service.
+
+        Args:
+            agent_id: The unique identifier of the agent to delete.
+            
+        Returns:
+            True if deletion was successful (e.g. HTTP 204), False otherwise.
+            The _handle_response in BaseClient converts 204 to {"status": "success"}.
+
+        Raises:
+            ApiError: If the backend API call fails critically (e.g., not 404).
+        """
+        logger.info(f"Deleting agent with ID: {agent_id} from backend.")
+        try:
+            response_data = self._request(
+                method="DELETE",
+                path=f"{self.api_prefix}/{agent_id}",
+                is_backend_request=True
+            )
+            # _handle_response returns {"status": "success", "data": None} for 204
+            if response_data and response_data.get("status") == "success":
+                logger.info(f"Agent {agent_id} deleted successfully from backend.")
+                return True
+            else:
+                # This case should ideally not be reached if _handle_response works as expected for non-204 errors
+                logger.warning(f"Agent {agent_id} deletion from backend returned unexpected response: {response_data}")
+                return False
+        except ApiError as e:
+            if e.status_code == 404:
+                logger.warning(f"Agent with ID {agent_id} not found in backend for deletion. Considering it deleted.")
+                return True # If it's not there, it's effectively deleted from client perspective.
+            logger.error(f"Failed to delete agent {agent_id}. Status: {e.status_code}, Detail: {e.message}")
+            raise
+        return False # Should be covered by exceptions or successful return
 
 # Singleton instance for easy access from command modules
 client = AgentClient()
@@ -157,10 +191,10 @@ if __name__ == '__main__':
 
     # Test list
     print("\n2. Listing agents...")
-    agents = test_client.list_agents(local_identities=[{"agent_id": "local-123", "name":"LocalOnlyAgent"}])
-    print(f"Listed agents ({len(agents)}):")
-    for ag in agents:
-        print(f"  - {ag.get('name')} ({ag.get('agent_id')}) - Source: {ag.get('source')}")
+    agents = test_client.list_agents(skip=0, limit=100)
+    print(f"Listed agents ({len(agents.get('agents', []))} out of {agents.get('total')} total):")
+    for ag in agents.get('agents', []):
+        print(f"  - {ag.get('name')} ({ag.get('agent_id')})")
 
     # Test describe
     print(f"\n3. Describing agent {agent_id_1}...")
@@ -173,11 +207,11 @@ if __name__ == '__main__':
 
     # Test delete
     print(f"\n5. Deleting agent {agent_id_1}...")
-    del_status = test_client.delete_agent(agent_id_1, revoke_credentials=True)
+    del_status = test_client.delete_agent(agent_id_1)
     print(f"Deletion status: {del_status}")
     
     print(f"\n6. Deleting a non-deletable agent (mock failure)...")
-    del_status_fail = test_client.delete_agent("non-deletable-id", revoke_credentials=True)
+    del_status_fail = test_client.delete_agent("non-deletable-id")
     print(f"Deletion status (mock failure): {del_status_fail}")
     
     print("\n--- Placeholder Test Complete ---") 

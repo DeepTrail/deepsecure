@@ -76,7 +76,7 @@ class CRUDAgent(CRUDBase[AgentModel, AgentCreate, AgentUpdate]): # Use AgentUpda
         }
         # db_obj = self.model(**jsonable_encoder(obj_in)) # Old way
         db_obj = self.model(**db_obj_data)
-        
+
         db.add(db_obj)
         try:
             db.commit()
