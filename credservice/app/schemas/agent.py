@@ -61,7 +61,7 @@ class AgentInDBBase(AgentBase):
     created_at: datetime
     updated_at: datetime
     last_seen_at: Optional[datetime] = None
-    
+
     model_config = {
         "from_attributes": True # Allow creating from ORM model attributes
     }
