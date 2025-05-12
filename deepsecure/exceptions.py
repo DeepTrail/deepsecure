@@ -42,4 +42,12 @@ class CryptoError(DeepSecureError):
     # TODO: Implement this exception where crypto operations might fail in KeyManager.
     pass
 
+class IdentityManagerError(DeepSecureError):
+    """Raised for errors specific to local identity management operations."""
+    pass
+
+class AuditLoggerError(DeepSecureError):
+    # ... existing code ...
+    pass
+
 # TODO: Add more specific exceptions as needed (e.g., PolicyError, SandboxError). 

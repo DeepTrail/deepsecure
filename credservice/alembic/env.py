@@ -32,7 +32,8 @@ sys.path.insert(0, os.path.realpath(os.path.join(os.path.dirname(__file__), '..'
 # Make sure your models are defined and importable
 # Example: from app.models.user import Base # Adjust path as needed
 from app.db.base import Base
-target_metadata = Base.metadata
+target_metadata = Base.metadata # Restore original line
+# target_metadata = None # Temporarily set to None for testing
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired: my_important_option = config.get_main_option("my_important_option")
