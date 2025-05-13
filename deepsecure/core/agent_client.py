@@ -139,41 +139,42 @@ class AgentClient(BaseClient):
             logger.error(f"Failed to update agent {agent_id}. Status: {e.status_code}, Detail: {e.message}")
             raise
 
-    def delete_agent(self, agent_id: str) -> bool:
-        """Delete an agent from the backend service.
+    def delete_agent(self, agent_id: str) -> Dict[str, Any]: # Changed return type to Dict
+        """Deactivates an agent (soft delete) via the backend service.
 
         Args:
-            agent_id: The unique identifier of the agent to delete.
+            agent_id: The unique identifier of the agent to deactivate.
             
         Returns:
-            True if deletion was successful (e.g. HTTP 204), False otherwise.
-            The _handle_response in BaseClient converts 204 to {"status": "success"}.
+            A dictionary representing the deactivated agent's details from the backend.
 
         Raises:
-            ApiError: If the backend API call fails critically (e.g., not 404).
+            ApiError: If the backend API call fails (e.g., not 404 or 200).
         """
-        logger.info(f"Deleting agent with ID: {agent_id} from backend.")
+        logger.info(f"Deactivating agent (soft delete) with ID: {agent_id} via backend.")
         try:
+            # Backend DELETE /api/v1/agents/{agent_id} now returns 200 OK with the updated agent object.
             response_data = self._request(
                 method="DELETE",
                 path=f"{self.api_prefix}/{agent_id}",
                 is_backend_request=True
             )
-            # _handle_response returns {"status": "success", "data": None} for 204
-            if response_data and response_data.get("status") == "success":
-                logger.info(f"Agent {agent_id} deleted successfully from backend.")
-                return True
+            
+            # Expecting the agent object directly from _request if successful (2xx)
+            if response_data and response_data.get("agent_id") == agent_id:
+                logger.info(f"Agent {agent_id} successfully deactivated by backend. Status: {response_data.get('status')}")
+                return response_data # Return the full agent object
             else:
-                # This case should ideally not be reached if _handle_response works as expected for non-204 errors
-                logger.warning(f"Agent {agent_id} deletion from backend returned unexpected response: {response_data}")
-                return False
+                logger.error(f"Agent {agent_id} deactivation attempt returned unexpected data structure: {response_data}")
+                # This indicates a mismatch between client expectation and actual successful response structure
+                raise ApiError(f"Unexpected response structure after agent deactivation for {agent_id}.", status_code=None)
+
         except ApiError as e:
-            if e.status_code == 404:
-                logger.warning(f"Agent with ID {agent_id} not found in backend for deletion. Considering it deleted.")
-                return True # If it's not there, it's effectively deleted from client perspective.
-            logger.error(f"Failed to delete agent {agent_id}. Status: {e.status_code}, Detail: {e.message}")
-            raise
-        return False # Should be covered by exceptions or successful return
+            # BaseClient._handle_response raises ApiError for non-2xx. We catch it here.
+            # If it was 404, it will be ApiError with status_code=404.
+            # The CLI command will decide how to interpret 404 (e.g., agent already gone).
+            logger.error(f"API error during deactivation of agent {agent_id}. Status: {e.status_code}, Detail: {e.message}")
+            raise # Re-raise for the command layer to handle
 
 # Singleton instance for easy access from command modules
 client = AgentClient()

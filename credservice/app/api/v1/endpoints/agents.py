@@ -111,15 +111,18 @@ def update_agent(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not update agent.")
     return updated_agent
 
-@router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{agent_id}", response_model=schemas.Agent)
 def delete_agent(agent_id: str, db: Session = Depends(deps.get_db)):
-    """Delete an agent from the system."""
-    db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
-    if not db_agent:
+    """Deactivate an agent by setting its status to 'inactive' (soft delete)."""
+    
+    # The crud.agent.remove() method now performs a deactivation (soft delete)
+    # and returns the updated agent object or None if not found.
+    deactivated_agent = crud.agent.remove(db=db, id=agent_id) 
+    
+    if not deactivated_agent:
+        logger.warning(f"Attempt to delete/deactivate non-existent agent: {agent_id}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    try:
-        crud.agent.remove(db=db, id=agent_id)
-    except Exception as e: # Catch potential errors from CRUDBase remove
-        logger.error(f"Error deleting agent {agent_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not delete agent.")
-    return # Returns 204 No Content by default 
+    
+    logger.info(f"Agent {agent_id} successfully deactivated (soft deleted). Status: {deactivated_agent.status}")
+    # Return the agent object, which will now have status="inactive"
+    return deactivated_agent 
