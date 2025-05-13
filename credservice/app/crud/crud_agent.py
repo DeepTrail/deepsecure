@@ -114,5 +114,40 @@ class CRUDAgent(CRUDBase[AgentModel, AgentCreate, AgentUpdate]): # Use AgentUpda
     # get_multi is inherited from CRUDBase
     # remove (by agent_id) is inherited from CRUDBase, relying on its get(id=agent_id) logic
 
+    def deactivate_agent(self, db: Session, *, agent_id: str) -> Optional[AgentModel]:
+        """Deactivates an agent by setting its status to 'inactive'.
+
+        Args:
+            db: The database session.
+            agent_id: The ID of the agent to deactivate.
+
+        Returns:
+            The updated AgentModel instance with status 'inactive', or None if not found.
+        """
+        db_obj = self.get_by_agent_id(db=db, agent_id=agent_id)
+        if db_obj:
+            logger.info(f"CRUD: Deactivating agent: {agent_id}. Current status: {db_obj.status}")
+            db_obj.status = "inactive"
+            # db_obj.updated_at will be updated automatically due to onupdate=func.now() in model
+            try:
+                db.add(db_obj) # Add to session to mark as dirty
+                db.commit()
+                db.refresh(db_obj)
+                logger.info(f"Successfully deactivated agent: {agent_id}. New status: {db_obj.status}")
+                return db_obj
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Database commit failed during agent deactivation for {agent_id}: {e}", exc_info=True)
+                raise # Re-raise the exception to be handled by the API layer
+        logger.warning(f"CRUD: Agent with ID {agent_id} not found for deactivation.")
+        return None
+
+    # Override the remove method from CRUDBase to perform a soft delete (deactivation)
+    # This way, existing API endpoint calling crud.agent.remove() will now soft delete.
+    def remove(self, db: Session, *, id: str) -> Optional[AgentModel]: # id here is agent_id
+        """Soft deletes an agent by deactivating it."""
+        logger.info(f"CRUD: Received remove request for agent_id: {id}. Performing deactivation (soft delete).")
+        return self.deactivate_agent(db=db, agent_id=id)
+
 # Instantiate with the SQLAlchemy MODEL class
 agent = CRUDAgent(AgentModel) 

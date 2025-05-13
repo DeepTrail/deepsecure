@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 # Ensuring correct relative imports for a package structure
-from .crypto import key_manager
+from .crypto.key_manager import key_manager as key_manager_instance # Corrected import for the instance
 from .. import utils
 from ..exceptions import IdentityManagerError, DeepSecureError # Assuming DeepSecureError is base
 
@@ -19,7 +19,7 @@ IDENTITY_FILE_MODE = 0o600
 
 class IdentityManager:
     def __init__(self):
-        self.key_manager = key_manager # Use the singleton from key_manager.py
+        self.key_manager = key_manager_instance # Use the imported instance
         self.identity_store_path = IDENTITY_STORE_PATH
         
         try:
