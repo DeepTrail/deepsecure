@@ -3,11 +3,14 @@ import typer
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 import time # For created_at timestamp
+import logging # <--- Added import for logging
 
 from .. import utils
 from ..core.identity_manager import identity_manager
 from ..core.agent_client import client as agent_api_client # Use the client singleton
 from ..exceptions import IdentityManagerError, ApiError # Assuming ApiError for agent_client
+
+logger = logging.getLogger(__name__) # <--- Added logger instance
 
 app = typer.Typer(
     name="agent",
@@ -77,7 +80,7 @@ def register(
 
         utils.console.print(f"Registering public key with the backend service...")
         backend_response = agent_api_client.register_agent(
-            public_key_pem=service_public_key_b64, 
+            public_key=service_public_key_b64,
             name=name,
             description=description
         )
@@ -146,6 +149,8 @@ def register(
 def list_agents( # Renamed from 'list' to avoid conflict with Python's list
     local: bool = typer.Option(False, "--local", help="Display only agents with locally stored identities."),
     remote: bool = typer.Option(False, "--remote", help="Display only agents registered with the remote credservice. (Default if no flags)"),
+    skip: int = typer.Option(0, "--skip", help="Number of records to skip for pagination when fetching remote agents."),
+    limit: int = typer.Option(100, "--limit", help="Maximum number of records to return when fetching remote agents."),
     output: str = typer.Option("table", "--output", "-o", help="Output format (`table`, `json`, `text`). Case-insensitive.", case_sensitive=False)
 ):
     """List agents known to DeepSecure (locally and/or remotely)."""
@@ -153,7 +158,6 @@ def list_agents( # Renamed from 'list' to avoid conflict with Python's list
     fetch_local = local
     fetch_remote = remote
 
-    # If neither flag is set, default to fetching remote agents
     if not local and not remote:
         fetch_remote = True
     
@@ -165,30 +169,38 @@ def list_agents( # Renamed from 'list' to avoid conflict with Python's list
                 agents_to_display.append({
                     "agent_id": ident.get("id", "N/A"),
                     "name": ident.get("name", "N/A"),
-                    "status": "local_only", # Local identities don't have a backend status per se
+                    "status": "local_only", 
                     "source": "local",
                     "public_key_fingerprint": ident.get("public_key_fingerprint", "N/A"),
                     "created_at": utils.format_timestamp(ident.get("created_at")) if ident.get("created_at") else "N/A"
                 })
             utils.console.print(f"Found {len(local_identities_raw)} local identity/identities.")
 
-        remote_identities_for_client = []
         if fetch_remote:
-            utils.console.print("Fetching agent identities from the backend service...")
-            # The agent_api_client might take local identities to help with its own merging/display logic
-            # For now, the placeholder client handles this by just taking the list.
-            # In a real scenario, it might not need local_identities passed to list_agents.
-            remote_identities_raw = agent_api_client.list_agents(local_identities=None) # Pass None for now
-            for ident in remote_identities_raw:
-                 agents_to_display.append({
-                    "agent_id": ident.get("agent_id", "N/A"), # Key might be agent_id from backend
-                    "name": ident.get("name", "N/A"),
-                    "status": ident.get("status", "unknown"), 
-                    "source": ident.get("source", "remote"), # Should be remote from placeholder
-                    "public_key_fingerprint": ident.get("public_key_fingerprint", "N/A"),
-                    "created_at": ident.get("created_at", "N/A") # Backend might format timestamp differently
+            utils.console.print(f"Fetching agent identities from the backend service (skip={skip}, limit={limit})...")
+            remote_response = agent_api_client.list_agents(skip=skip, limit=limit)
+            remote_identities_raw = remote_response.get("agents", [])
+            total_remote = remote_response.get("total", len(remote_identities_raw))
+
+            for ident_data in remote_identities_raw: # Renamed loop var to avoid conflict if ident is a type
+                fingerprint = "N/A"
+                public_key_b64 = ident_data.get("publicKey") # Corrected to use "publicKey" from backend schema
+                if public_key_b64:
+                    try:
+                        fingerprint = identity_manager.get_public_key_fingerprint(public_key_b64)
+                    except IdentityManagerError as e:
+                        logger.warning(f"Could not generate fingerprint for remote agent {ident_data.get('agent_id')}: {e}")
+                        fingerprint = "Error/Invalid"
+                
+                agents_to_display.append({
+                    "agent_id": ident_data.get("agent_id", "N/A"),
+                    "name": ident_data.get("name", "N/A"),
+                    "status": ident_data.get("status", "unknown"), 
+                    "source": "remote", 
+                    "public_key_fingerprint": fingerprint,
+                    "created_at": ident_data.get("created_at", "N/A") 
                 })
-            utils.console.print(f"Found {len(remote_identities_raw)} remote agent(s) from backend.")
+            utils.console.print(f"Found {len(remote_identities_raw)} remote agent(s) from backend (total available: {total_remote}).")
 
         if not agents_to_display:
             utils.console.print("No agents found.")
@@ -355,86 +367,79 @@ def describe(
 @app.command("delete")
 def delete(
     agent_id: str = AgentID,
-    revoke_credentials: bool = typer.Option(True, "--revoke-credentials/--no-revoke-credentials", help="Revoke all active credentials for this agent on deletion."),
+    revoke_credentials: bool = typer.Option(True, "--revoke-credentials/--no-revoke-credentials", help="(Future use) Revoke all active credentials for this agent on deletion."),
     purge_local_keys: bool = typer.Option(False, "--purge-local-keys", help="Delete local private keys associated with this agent. Requires confirmation."),
     force: bool = typer.Option(False, "--force", "-f", help="Suppress confirmation prompts for destructive actions.")
 ):
-    """Decommission an agent from the backend and/or purge local keys."""
-    backend_deleted_successfully = False
+    """Deactivate an agent in the backend (soft delete) and/or purge local keys."""
+    backend_deactivated_successfully = False
     local_keys_purged_successfully = False
     local_keys_existed = False
 
-    # Check if local keys exist before attempting any deletion
     local_identity_file = identity_manager.identity_store_path / f"{agent_id}.json"
     if local_identity_file.exists():
         local_keys_existed = True
 
-    # Confirmation for purging local keys
     if purge_local_keys and local_keys_existed and not force:
         utils.console.print(f"[yellow]Warning: You are about to permanently delete local private keys for agent ID: {agent_id}.[/yellow]")
         if not typer.confirm("Are you sure you want to proceed with deleting local keys? This action cannot be undone.", abort=True):
-             # This will exit if user chooses not to proceed if abort=True is effective.
-             # For safety, we can explicitly print a message and exit if typer.confirm itself doesn't exit cleanly.
-             utils.console.print("Local key deletion aborted by user.")
-             # No explicit exit here, typer.confirm with abort=True should handle it.
-             # However, if it doesn't, the command will proceed without purging, which is safe.
-             pass # If abort=True in confirm, this line might not be reached.
+            # typer.confirm with abort=True will exit here if user says no.
+            # If it somehow didn't, the logic below would proceed without purging.
+            pass 
         else:
             utils.console.print("Proceeding with local key deletion as confirmed by user.")
     elif purge_local_keys and not local_keys_existed:
         utils.console.print(f"No local keys found for agent ID {agent_id} to purge.")
-        purge_local_keys = False # No need to attempt purge if not found
+        # Set purge_local_keys to False so we don't try to act on it or report success/failure for it later
+        purge_local_keys = False 
 
     try:
-        # Attempt backend deletion first
-        utils.console.print(f"Attempting to delete agent {agent_id} from backend service...")
+        utils.console.print(f"Attempting to deactivate agent (soft delete) {agent_id} via backend service...")
         try:
-            # The placeholder delete_agent returns True on mock success
-            if agent_api_client.delete_agent(agent_id=agent_id, revoke_credentials=revoke_credentials):
-                backend_deleted_successfully = True
-                utils.print_success(f"Agent {agent_id} successfully deleted from backend (or marked for deletion).")
-                if revoke_credentials:
-                    utils.console.print(f"  Credentials for agent {agent_id} are set to be revoked by backend.")
+            deactivated_agent_data = agent_api_client.delete_agent(agent_id=agent_id)
+            # If delete_agent succeeds, it returns the (now inactive) agent dict
+            if deactivated_agent_data and deactivated_agent_data.get("status") == "inactive":
+                backend_deactivated_successfully = True
+                utils.print_success(f"Agent {agent_id} successfully deactivated. New status: inactive")
             else:
-                # This path might be taken if client returns False for a handled non-critical error
-                utils.print_error(f"Backend service indicated agent {agent_id} could not be deleted (e.g., not found or policy restriction).", exit_code=None)
-        except ApiError as e:
-            utils.print_error(f"API error during backend deletion of agent {agent_id}: {e}", exit_code=None) # Don't exit yet, try local purge
-        except Exception as e:
-            utils.print_error(f"Unexpected error during backend deletion of agent {agent_id}: {e}", exit_code=None)
+                # This else might be hit if client returns something unexpected but not an ApiError
+                utils.print_error(f"Backend reported deactivation but response was unexpected for {agent_id}. Data: {deactivated_agent_data}", exit_code=None)
 
-        # Attempt to purge local keys if requested
-        if purge_local_keys and local_keys_existed:
+        except ApiError as e:
+            if e.status_code == 404:
+                utils.print_warning(f"Agent {agent_id} not found on backend. Cannot deactivate.")
+            else:
+                utils.print_error(f"API error during agent deactivation for {agent_id}: {e}", exit_code=None)
+        except Exception as e:
+            utils.print_error(f"Unexpected error during agent deactivation for {agent_id}: {e}", exit_code=None)
+
+        if purge_local_keys and local_keys_existed: # Only attempt if requested and they existed
             utils.console.print(f"Attempting to purge local keys for agent ID: {agent_id}...")
             try:
                 if identity_manager.delete_identity(agent_id=agent_id):
                     local_keys_purged_successfully = True
                     utils.print_success(f"Local keys for agent ID {agent_id} purged successfully.")
-                else:
-                    # delete_identity in IdentityManager prints its own errors for OS issues
-                    # This else might be if it returns False for other reasons (though currently it raises or returns True)
-                    utils.print_error(f"Failed to purge local keys for agent ID {agent_id}. Check previous messages.", exit_code=None)
+                # else: # identity_manager.delete_identity raises error on failure now
+                    # utils.print_error(f"Failed to purge local keys for agent ID {agent_id}. `identity_manager.delete_identity` returned False.", exit_code=None)
             except IdentityManagerError as e:
                 utils.print_error(f"Error purging local keys for agent {agent_id}: {e}", exit_code=None)
         
-        # Final status message
-        if not backend_deleted_successfully and not (purge_local_keys and local_keys_purged_successfully):
-            utils.print_error(f"No delete actions fully succeeded for agent {agent_id}. Please check messages above.", exit_code=1) # Exit with error if nothing happened
-        elif not backend_deleted_successfully and purge_local_keys and not local_keys_existed:
-            # Case where backend failed but there were no local keys to purge initially
-            utils.print_error(f"Backend deletion failed for agent {agent_id}. No local keys were present to purge.", exit_code=1)
-        elif backend_deleted_successfully and purge_local_keys and not local_keys_purged_successfully and local_keys_existed:
-            utils.print_warning(f"Agent {agent_id} deleted from backend, but failed to purge local keys.")
-        elif not backend_deleted_successfully and purge_local_keys and local_keys_purged_successfully:
-            utils.print_warning(f"Local keys for agent {agent_id} purged, but backend deletion failed or did not complete.")
-        else:
-            # Covers: backend success & no purge needed; backend success & local purge success
-            utils.print_success(f"Agent {agent_id} deletion process completed.")
-            
+        # Final status reporting
+        if backend_deactivated_successfully:
+            if purge_local_keys and local_keys_existed and not local_keys_purged_successfully:
+                utils.print_warning(f"Agent {agent_id} deactivated on backend, but failed to purge associated local keys.")
+            # Other success cases are covered by individual success messages.
+        elif purge_local_keys and local_keys_purged_successfully: # Backend failed, but local purge was successful
+            utils.print_warning(f"Local keys for agent {agent_id} purged, but backend deactivation failed or agent was not found.")
+        elif not backend_deactivated_successfully and not (purge_local_keys and local_keys_existed and local_keys_purged_successfully):
+            # This condition means backend failed AND (either purge wasn't requested OR local keys didn't exist OR purge failed)
+            # It's a bit complex, simplify: if backend failed and local wasn't successfully purged (if attempted for existing keys)
+            if not (purge_local_keys and not local_keys_existed): # Avoid error if no local keys and purge wasn't really an option
+                 utils.print_error(f"Agent {agent_id} deactivation failed. Please check messages above.", exit_code=1)
+
     except typer.Abort:
         utils.console.print("[yellow]Operation aborted by user.[/yellow]")
         # No explicit exit here; typer.Abort should handle it.
     except Exception as e:
-        # Catch-all for truly unexpected issues during the orchestration
-        utils.print_error(f"An unexpected error occurred during the delete operation for agent {agent_id}: {e}")
-        raise typer.Exit(code=1) 
+        utils.print_error(f"An unexpected error occurred during the delete operation for {agent_id}: {e}", exit_code=True)
+        # Re-raise typer.Exit if needed, or let it be based on print_error default. 
