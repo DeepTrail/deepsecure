@@ -43,16 +43,17 @@ def init(
 
 @app.command("apply")
 def apply(
-    identity: str = typer.Option(..., help="Identity of the AI agent to apply policy to"),
-    policy: Path = typer.Option(..., help="Path to the policy file to apply")
+    agent_id: str = typer.Option(..., "--agent-id", "-id", help="Unique ID of the AI agent to apply policy to"),
+    policy: Path = typer.Option(..., "--policy-file", help="Path to the policy file to apply")
 ):
     """Apply a runtime policy to an AI agent or server."""
     # Verify the policy file exists
     if not policy.exists():
         utils.print_error(f"Policy file not found: {policy}")
+        raise typer.Exit(code=1)
     
-    utils.console.print(f"Applying policy from [bold]{policy}[/] to identity [bold]{identity}[/]")
-    # Placeholder - would call policy_client.apply_policy() in real implementation
+    utils.console.print(f"Applying policy from [bold]{policy}[/] to agent ID [bold]{agent_id}[/]")
+    # Placeholder - would call policy_client.apply_policy(agent_id=agent_id, policy_path=policy) in real implementation
     
-    utils.print_success(f"Applied policy to {identity}")
-    utils.console.print(f"The identity [bold]{identity}[/] is now operating under restricted permissions") 
+    utils.print_success(f"Applied policy to {agent_id}")
+    utils.console.print(f"The agent [bold]{agent_id}[/] is now operating under restricted permissions") 

@@ -9,6 +9,7 @@ DeepSecure CLI is the command-line security control plane for developers and sec
 
 DeepSecure CLI offers a comprehensive suite of tools for securing AI agents, MCP servers, and applications:
 
+- **🤖 Agent Identity Management:** Explicitly register, list, describe, and manage the lifecycle of AI agents.
 - **🔐 Credential Management:** Issue, revoke, and rotate secure credentials
 - **🧠 Identity Risk & Behavior Monitoring:** Audit trails and risk scoring
 - **🛡️ Policy Enforcement:** Runtime policy application and sandboxing
@@ -48,24 +49,37 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
+A typical workflow might involve registering an agent, then using its ID for other operations:
+
 ```bash
-# Show version
+# Show CLI version
 deepsecure version
 
-# Issue a credential
-deepsecure vault issue --scope=db:readonly --ttl=5m
+# 1. Register a new AI agent (this will generate local keys if no public key is provided)
+deepsecure agent register --name "MyWorkflowAgent" --description "Agent for automated tasks"
+# (Note the agent-id output by this command, let's assume it's AGENT_ID_HERE)
 
-# Apply a policy
-deepsecure policy apply --identity=agent1 --policy=./policy.yaml
+# 2. List registered agents to see your new agent
+deepsecure agent list
 
-# Get a risk score
-deepsecure risk score --identity=agent1
+# 3. Issue a credential for the specific agent
+# Replace AGENT_ID_HERE with the actual ID from the register command
+deepsecure vault issue --agent-id "AGENT_ID_HERE" --scope="database:read" --ttl="10m"
+
+# 4. Apply a policy to the agent (example)
+# Replace AGENT_ID_HERE with the actual ID
+deepsecure policy apply --agent-id "AGENT_ID_HERE" --policy-file "./path/to/agent_policy.yaml"
+
+# 5. Get a risk score for the agent (example)
+# Replace AGENT_ID_HERE with the actual ID
+deepsecure risk score --agent-id "AGENT_ID_HERE"
 ```
 
 ## Command Overview
 
 | Command Group | Description | Commands | Responsibilities |
 |---------------|-------------|----------|------------------|
+| agent     | Manage AI agent identities & lifecycle        | register, list, describe, delete| • Explicitly register agents with `credservice`<br>• Manage local agent identity keys<br>• List & describe agents<br>• Deactivate (soft delete) agents |
 | vault | Credential management | issue, revoke, rotate | • Integrate with secrets backend (e.g. Vault API)<br>• Enforce TTL, scoping, audit logging |
 | audit | Behavior monitoring | start, tail | • Launch or attach to audit service<br>• Stream & filter logs |
 | risk | Risk assessment | score, list | • Compute/lookup risk profiles<br>• Format output (color-coded) |
