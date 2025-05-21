@@ -54,8 +54,9 @@ class CredentialIssueRequest(CredentialBase):
 class CredentialIssueResponse(CredentialBase):
     """Schema for the response after successfully issuing a credential."""
     credential_id: str = Field(..., example=str(uuid.uuid4()))
-    ephemeral_public_key: str = Field(..., description="Base64 encoded X25519 public key.") # Key provided by agent, returned for confirmation
+    ephemeral_public_key: str = Field(..., description="Base64 encoded X25519 public key.")
     expires_at: datetime
+    origin_context: Optional[Dict[str, Any]] = Field(None, description="Context of the request origin, if provided and processed.")
 
     model_config = {
         "from_attributes": True
