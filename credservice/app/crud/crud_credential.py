@@ -69,23 +69,32 @@ class CRUDCredential(CRUDBase[CredentialModel, CredentialIssueRequest, Credentia
             SQLAlchemyError: If a database commit error occurs.
         """
         logger.info(f"Creating credential for agent: {obj_in.agent_id}")
-        
+
         try:
             ephemeral_public_key_bytes = base64.b64decode(obj_in.ephemeral_public_key)
-            signature_bytes = base64.b64decode(obj_in.signature)
         except Exception as e:
-            logger.error(f"Failed to decode base64 data during CRUD create: {e}")
-            raise ValueError("Invalid base64 data provided for key or signature")
+            logger.error(f"CRUD: Failed to decode ephemeral_public_key '{obj_in.ephemeral_public_key}': {e}")
+            raise ValueError("Invalid base64 for ephemeral_public_key in CRUD") from e
+
+        signature_bytes: Optional[bytes] = None # Default to None
+        if obj_in.signature is not None: # <--- ADD THIS CHECK
+            try:
+                signature_bytes = base64.b64decode(obj_in.signature)
+            except Exception as e:
+                logger.error(f"CRUD: Failed to decode signature '{obj_in.signature}': {e}")
+                raise ValueError("Invalid base64 for signature in CRUD") from e
 
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=obj_in.ttl)
         
         obj_in_data = jsonable_encoder(obj_in, exclude={
+            'agent_id', # <--- ADD agent_id TO EXCLUDE
+            'scope', # <--- ADD scope TO EXCLUDE 
             'ephemeral_public_key',
             'signature',
             'ttl',
-            'ephemeral_public_key_bytes',
-            'signature_bytes'
+            #'ephemeral_public_key_bytes',
+            #'signature_bytes'
         })
         
         credential_id = str(uuid.uuid4())
@@ -94,10 +103,15 @@ class CRUDCredential(CRUDBase[CredentialModel, CredentialIssueRequest, Credentia
         db_obj = self.model(
             **obj_in_data,
             credential_id=credential_id,
+            agent_id=obj_in.agent_id, # This is now the sole source for agent_id
+            scope=obj_in.scope, # This is now the sole source for scope
             ephemeral_public_key=ephemeral_public_key_bytes,
             signature=signature_bytes,
             issued_at=now,
-            expires_at=expires_at
+            expires_at=expires_at,
+            status="issued"
+            # Ensure origin_context from obj_in_data is handled or explicitly passed if needed
+            # If origin_context is in obj_in (and thus in obj_in_data), it will be passed by **obj_in_data.
         )
         
         logger.debug(f"Adding CredentialModel instance to session: ID {credential_id}")

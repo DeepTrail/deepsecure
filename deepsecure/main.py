@@ -4,7 +4,8 @@ import importlib.metadata
 
 from .commands import (
     vault,
-    agent
+    agent,
+    configure
     # invoke removed
 )
 
@@ -30,6 +31,7 @@ app = typer.Typer(
 # Register command modules
 app.add_typer(vault.app, name="vault")
 app.add_typer(agent.app, name="agent")
+app.add_typer(configure.app, name="configure")
 # app.add_typer(invoke.app, name="invoke") # Removed invoke command group
 
 # Register other commands as they're implemented
