@@ -13,11 +13,11 @@ app = typer.Typer(
 
 @app.command("score")
 def score(
-    identity: str = typer.Option(..., help="Identity of the AI agent to score")
+    agent_id: str = typer.Option(..., "--agent-id", "-id", help="Unique ID of the AI agent to score")
 ):
     """Get the dynamic risk score for an AI identity or tool."""
-    utils.console.print(f"Calculating risk score for identity: [bold]{identity}[/]")
-    # Placeholder - would call risk_client.get_risk_score() in real implementation
+    utils.console.print(f"Calculating risk score for agent ID: [bold]{agent_id}[/]")
+    # Placeholder - would call risk_client.get_risk_score(agent_id=agent_id) in real implementation
     risk_score = 0.42  # Example score between 0-1
     risk_level = "MEDIUM"  # Example risk level
     
@@ -26,7 +26,7 @@ def score(
     utils.console.print("- [yellow]Executed 5 shell commands in last hour[/]")
     utils.console.print("- [green]All file accesses within allowed directories[/]")
     
-    utils.print_success(f"Completed risk assessment for {identity}")
+    utils.print_success(f"Completed risk assessment for {agent_id}")
 
 @app.command("list")
 def list_risks():

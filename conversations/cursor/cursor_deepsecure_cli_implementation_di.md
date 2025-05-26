@@ -18327,7 +18327,7 @@ The current implementation, while focused on replacing static secrets with dynam
 
 ### Functionality Not Yet Implemented (or Placeholder) for Broader Security Goals:
 
-1.  **Comprehensive Agent Identity Lifecycle Management:** Explicit CLI commands/APIs for agent registration, listing, decommissioning; more secure local key storage (`keyring`).
+1.  **Comprehensive Agent Identity Lifecycle Management:** Explicit CLI commands/APIs for agent registration, listing, decommissioning;  (`keyring`).
 2.  **Advanced Authentication & Authorization:** User-specific CLI login/tokens; Backend RBAC; dynamic JWTs for CLI-backend communication.
 3.  **Comprehensive Audit Trail & Analysis:** Centralized, immutable backend audit logs; richer log context; CLI/API for querying audit trails.
 4.  **Risk Management & Scoring:** Defined risk metrics; backend risk scoring engine; CLI/API for viewing risk scores; future automated responses based on risk.
@@ -18480,7 +18480,7 @@ The current implementation, while focused on replacing static secrets with dynam
 
 ### Functionality Not Yet Implemented (or Placeholder) for Broader Security Goals:
 
-1.  **Comprehensive Agent Identity Lifecycle Management:** Explicit CLI commands/APIs for agent registration, listing, decommissioning; more secure local key storage (`keyring`).
+1.  **Comprehensive Agent Identity Lifecycle Management:** Explicit CLI commands/APIs for agent registration, listing, decommissioning;  (`keyring`).
 2.  **Advanced Authentication & Authorization:** User-specific CLI login/tokens; Backend RBAC; dynamic JWTs for CLI-backend communication.
 3.  **Comprehensive Audit Trail & Analysis:** Centralized, immutable backend audit logs; richer log context; CLI/API for querying audit trails.
 4.  **Risk Management & Scoring:** Defined risk metrics; backend risk scoring engine; CLI/API for viewing risk scores; future automated responses based on risk.
@@ -18633,7 +18633,7 @@ The current implementation, while focused on replacing static secrets with dynam
 
 ### Functionality Not Yet Implemented (or Partially Placeholder) for Broader Security Goals:
 
-1.  **Comprehensive Agent Identity Lifecycle Management (CLI & Backend):** Explicit CLI commands/APIs for agent registration, listing, decommissioning; more secure local key storage (`keyring`).
+1.  **Comprehensive Agent Identity Lifecycle Management (CLI & Backend):** Explicit CLI commands/APIs for agent registration, listing, decommissioning;  (`keyring`).
 2.  **Advanced Authentication & Authorization:** User-specific CLI login/tokens; Backend RBAC; dynamic JWTs for CLI-backend communication.
 3.  **Comprehensive Audit Trail & Analysis:** Centralized, immutable backend audit logs; richer log context; CLI/API for querying audit trails.
 4.  **Risk Management & Scoring:** Defined risk metrics; backend risk scoring engine; CLI/API for viewing risk scores; future automated responses based on risk.

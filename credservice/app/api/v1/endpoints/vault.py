@@ -16,69 +16,154 @@ from app.schemas.agent import AgentRotateRequest # Import schema for rotation
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-@router.post("/credentials", response_model=schemas.CredentialIssueResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/credentials", response_model=schemas.credential.CredentialIssueResponse, status_code=status.HTTP_201_CREATED) # Or schemas.CredentialIssueResponse
 def issue_credential(
-    credential_in: schemas.CredentialIssueRequest,
+    credential_in: schemas.credential.CredentialIssueRequest, # Or schemas.CredentialIssueRequest
     db: deps.DbDep,
-    _: None = deps.APIKeyDep
+    _: None = deps.APIKeyDep # Assuming APIKeyDep handles API key auth
 ):
-    """Issue a new short-lived credential for an agent.
+    logger.info(f"Attempting to issue credential for agent: {credential_in.agent_id} with scope: {credential_in.scope}")
 
-    - Verifies the provided signature against the agent's registered key.
-    - Creates a credential record in the database with a calculated expiry.
-    - Requires valid API Key authentication.
+    # 1. Fetch the agent
+    # If agent_id is None but your logic requires an agent for unsigned requests (e.g. for accountability)
+    # you might need to adjust this. For now, assume agent_id can be None if signature is also None.
+    agent = None
+    if credential_in.agent_id:
+        agent = crud.agent.get_by_agent_id(db=db, agent_id=credential_in.agent_id)
+        if not agent:
+            logger.warning(f"Agent not found during credential issuance: {credential_in.agent_id}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    elif credential_in.signature: 
+        # If there's a signature, an agent_id must have been provided to find the agent's key.
+        # Pydantic model should enforce agent_id if signature is present, or this check is needed.
+        # For now, this case implies an issue if signature is present but agent_id was None.
+        logger.error(f"Signature provided but agent_id is missing.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="agent_id is required if a signature is provided.")
 
-    Args:
-        credential_in: Input data containing agent ID, ephemeral key, signature, scope, and TTL.
-        db: Database session dependency.
 
-    Raises:
-        HTTPException 404: If the specified agent_id is not found.
-        HTTPException 400: If the base64 encoding is invalid or the signature verification fails.
-        HTTPException 500: If there's an internal error during signature verification or DB operation.
-    """
-    logger.info(f"Attempting to issue credential for agent: {credential_in.agent_id}")
-
-    # 1. Fetch the agent's long-term public key
-    agent = crud.agent.get_by_agent_id(db=db, agent_id=credential_in.agent_id)
-    if not agent:
-        logger.warning(f"Agent not found during credential issuance: {credential_in.agent_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-
-    # 2. Decode inputs (schema validator already checked format/length)
+    # 2. Decode ephemeral_public_key (Base64 validation already done by Pydantic validator)
     try:
         ephemeral_public_key_bytes = base64.b64decode(credential_in.ephemeral_public_key)
-        signature_bytes = base64.b64decode(credential_in.signature)
-        agent_public_key_bytes = agent.current_public_key
-    except Exception as e:
-        logger.error(f"Failed to decode base64 for verification: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid base64 encoding for key or signature")
+    except (TypeError, ValueError, base64.binascii.Error) as e:
+        # This should ideally be caught by Pydantic validator, but as a safeguard:
+        logger.error(f"Invalid base64 for ephemeral_public_key in endpoint: {credential_in.ephemeral_public_key}, Error: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid base64 encoding for ephemeral_public_key")
 
-    # 3. Verify the signature
-    try:
-        public_key = ed25519.Ed25519PublicKey.from_public_bytes(agent_public_key_bytes)
-        public_key.verify(signature_bytes, ephemeral_public_key_bytes)
-        logger.info(f"Signature verified successfully for agent {credential_in.agent_id}")
-    except InvalidSignature:
-        logger.warning(f"Invalid signature provided by agent {credential_in.agent_id}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature")
-    except Exception as e:
-        logger.error(f"Error during signature verification for agent {credential_in.agent_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Signature verification failed")
+    # 3. Verify the signature IF IT EXISTS and an agent was found (agent is required for signature verification)
+    if credential_in.signature:
+        if not agent: # Should have an agent if signature is present
+            logger.error(f"Signature provided for agent '{credential_in.agent_id}' but agent could not be loaded (or agent_id was None).")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent not found or not specified, cannot verify signature.")
+        
+        logger.info(f"Attempting signature verification for agent {credential_in.agent_id}")
+        try:
+            # Signature string already validated for base64 format by Pydantic
+            signature_bytes = base64.b64decode(credential_in.signature)
+            
+            # Ensure agent.current_public_key is in raw bytes format
+            agent_public_key_bytes = agent.current_public_key 
+            if not isinstance(agent_public_key_bytes, bytes):
+                # Attempt to decode if it's base64 stored in DB, or handle as per your DB schema
+                try:
+                    logger.warning("Agent's public key from DB is not in bytes, attempting base64 decode.")
+                    agent_public_key_bytes = base64.b64decode(str(agent_public_key_bytes))
+                except Exception as decode_err:
+                    logger.error(f"Could not decode agent's public key from DB for agent {agent.agent_id}: {decode_err}")
+                    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid agent public key format in database.")
+
+            public_key_obj = ed25519.Ed25519PublicKey.from_public_bytes(agent_public_key_bytes)
+            public_key_obj.verify(signature_bytes, ephemeral_public_key_bytes)
+            logger.info(f"Signature verified successfully for agent {credential_in.agent_id}")
+
+        except InvalidSignature:
+            logger.warning(f"Invalid signature provided by agent {credential_in.agent_id}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature")
+        except (TypeError, ValueError, base64.binascii.Error) as e:
+            logger.error(f"Failed to decode base64 signature in endpoint: {credential_in.signature}, Error: {e}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid base64 encoding for signature")
+        except Exception as e:
+            logger.error(f"Error during signature verification for agent {credential_in.agent_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Signature verification failed")
+    else:
+        logger.info(f"Bypassing signature verification (signature not provided in request). Issuing for agent: {credential_in.agent_id if credential_in.agent_id else 'Unspecified Agent'}")
+        # If signature is NOT provided, you might have different logic here.
+        # For example, you might require specific scopes or other checks.
+        # For now, we assume if no signature, and agent_id is provided, it's an "asserted" identity by a trusted caller.
+        # If agent_id is also None here, it means an anonymous credential issuance (if your system supports it).
 
     # 4. Create the credential record in the database
     try:
-        credential = crud.credential.create(db=db, obj_in=credential_in)
+        # Construct the object for CRUD based on what crud.credential.create expects.
+        # It likely takes the Pydantic model `credential_in` or specific fields.
+        # Ensure `ttl` field is correctly passed if `crud.credential.create` expects it.
+        
+        # Map fields from CredentialIssueRequest to what crud.credential.create_with_owner or create expects
+        # This example assumes crud.credential.create can handle the CredentialIssueRequest model directly
+        # or you have a specific obj_in model for it.
+        # For now, directly passing credential_in; adjust if your CRUD expects different structure.
+        
+        # We need to ensure that the data passed to CRUD for creation
+        # has 'ttl' and not 'ttl_seconds' if that's what the DB model expects.
+        # The CredentialIssueRequest model already has 'ttl'.
+        
+        # The CRUD layer will handle the actual database interaction.
+        # It might expect `ephemeral_public_key_bytes` and `signature_bytes`
+        # which the Pydantic model no longer stores directly.
+        # It's better for CRUD or this endpoint to handle final byte conversion.
+        
+        # Create a dictionary for the CRUD operation, ensuring ephemeral_public_key is bytes
+        crud_obj_in_data = {
+            "agent_id": credential_in.agent_id,
+            "scope": credential_in.scope,
+            "ephemeral_public_key": ephemeral_public_key_bytes, # Pass raw bytes
+            # Signature might be None or bytes if processed
+            "signature": base64.b64decode(credential_in.signature) if credential_in.signature else None,
+            "ttl_seconds": credential_in.ttl, # Assuming DB/CRUD might expect ttl_seconds or handles 'ttl'
+            "origin_context": credential_in.origin_context,
+            # Add other fields your CRUD create method expects
+        }
+        # You'll need to adjust this mapping based on your actual CRUD `create` method signature
+        # and the fields your database model for Credential expects.
+        # For instance, if CRUD expects a Pydantic schema, pass that.
+        # This is a placeholder for the actual data prep for CRUD.
+
+        # This is a simplified call. Your CRUD might need more specific handling
+        # e.g. separate fields for eph_key_bytes and sig_bytes etc.
+        # For now, this is illustrative. The main goal was to bypass sig verification.
+
+        # This is a conceptual adaptation for CRUD.
+        # You will need to ensure your `crud.credential.create` function
+        # is compatible with receiving these fields or a Pydantic model.
+        # The example here assumes it can take specific fields, including `ttl_seconds`.
+        # If your DB model for Credential uses `ttl` (int seconds), then pass `credential_in.ttl`.
+        
+        # Based on your vault.py, it seems to use `credential_in` directly:
+        # credential = crud.credential.create(db=db, obj_in=credential_in)
+        # If so, ensure `credential_in` Pydantic model has all necessary fields in correct types
+        # that `crud.credential.create` expects and that the DB model can store.
+        # The `ephemeral_public_key` and `signature` in `credential_in` are strings.
+        # If CRUD/DB expects bytes, conversion must happen.
+        
+        # Let's stick to the structure that seems to be in your vault.py:
+        # crud.credential.create(db=db, obj_in=credential_in)
+        # This means `credential_in` (which is `schemas.credential.CredentialIssueRequest`)
+        # must be acceptable to your CRUD layer.
+        # The validator in `CredentialIssueRequest` returns the original base64 string,
+        # so `credential_in.ephemeral_public_key` and `credential_in.signature` are strings.
+        # Your CRUD layer or DB model must handle conversion to bytes if needed.
+        
+        credential = crud.credential.create(db=db, obj_in=credential_in) # Uses the Pydantic model
         logger.info(f"Successfully created credential {credential.credential_id} for agent {credential_in.agent_id}")
     except ValueError as ve:
-        # Catch potential decoding errors within CRUD create (shouldn't happen)
         logger.error(f"ValueError during credential creation: {ve}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
     except Exception as e:
         logger.error(f"Failed to create credential record for agent {credential_in.agent_id}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not create credential")
 
-    return credential
+    # Construct the response using CredentialIssueResponse schema
+    # This will handle encoding bytes back to base64 if needed (e.g. for ephemeral_public_key)
+    return schemas.credential.CredentialIssueResponse.model_validate(credential)
 
 @router.post("/credentials/{credential_id}/revoke", response_model=schemas.CredentialRevokeResponse)
 def revoke_credential(
@@ -193,13 +278,33 @@ def verify_credential(
         logger.info(f"Credential not found for verification: {credential_id}")
         return schemas.CredentialVerifyResponse(
             credential_id=credential_id,
-            is_valid=False,
-            status="not_found"
+            is_valid=is_valid,
+            status=status_message,
+            scope=db_credential.scope if db_credential else None,
+            agent_id=db_credential.agent_id if db_credential else None,
+            issued_at=db_credential.issued_at if db_credential else None,
+            expires_at=db_credential.expires_at if db_credential else None,
+            # verified_at=db_credential.verified_at if db_credential else None,
+            verified_at=datetime.now(timezone.utc),
+            ephemeral_public_key=db_credential.ephemeral_public_key if db_credential else None,
+            origin_context=db_credential.origin_context if db_credential else None,
         )
 
     now = datetime.now(timezone.utc)
     status_message = "valid"
     is_valid = True
+
+    # Ensure issued_at from DB is also timezone-aware if needed, similar to expires_at
+    issued_at_aware = db_credential.issued_at
+    if issued_at_aware and issued_at_aware.tzinfo is None:
+        issued_at_aware = issued_at_aware.replace(tzinfo=timezone.utc)
+
+    eph_pub_key_b64: Optional[str] = None
+    if db_credential.ephemeral_public_key:
+        if isinstance(db_credential.ephemeral_public_key, bytes):
+            eph_pub_key_b64 = base64.b64encode(db_credential.ephemeral_public_key).decode('utf-8')
+        elif isinstance(db_credential.ephemeral_public_key, str):
+            eph_pub_key_b64 = db_credential.ephemeral_public_key
 
     # Ensure retrieved datetimes are timezone-aware (assume UTC if naive)
     revoked_at_aware = db_credential.revoked_at
@@ -227,5 +332,9 @@ def verify_credential(
         status=status_message,
         scope=db_credential.scope,
         agent_id=db_credential.agent_id,
-        expires_at=expires_at_aware # Return the timezone-aware version
+        issued_at=issued_at_aware,
+        expires_at=expires_at_aware, # Return the timezone-aware version
+        verified_at=datetime.now(timezone.utc),
+        ephemeral_public_key=eph_pub_key_b64,
+        origin_context=db_credential.origin_context if db_credential else None,
     ) 
