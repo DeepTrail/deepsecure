@@ -10,9 +10,9 @@ class ErrorDetail(BaseModel):
 class CredentialIssueRequest(BaseModel):
     scope: str
     ttl: int = Field(default=300, ge=60) # Min 1 min TTL
-    agent_id: Optional[str] = None
-    ephemeral_public_key: str # Base64 encoded
-    signature: Optional[str] = Field(default=None, description="Base64 encoded Ed25519 signature. Optional on client if server handles placeholder/bypass.")
+    agent_id: Optional[str] = None # Kept optional, VaultClient.issue() will ensure it's passed if signing
+    ephemeral_public_key: str # Base64 encoded raw public key
+    signature: str            # Base64 encoded signature - NOW REQUIRED
 
 class AgentKeyRotateRequest(BaseModel):
     new_public_key: str # Base64 encoded

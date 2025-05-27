@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 import base64
 import logging
-from typing import Optional, List
+from typing import Optional, List, Any
 
 from sqlalchemy.orm import Session
 from fastapi.encoders import jsonable_encoder
@@ -13,7 +13,7 @@ from app.schemas.credential import CredentialIssueRequest, Credential as Credent
 
 logger = logging.getLogger(__name__)
 
-class CRUDCredential(CRUDBase[CredentialModel, CredentialIssueRequest, CredentialUpdateSchema]):
+class CRUDCredential(CRUDBase[CredentialModel, CredentialIssueRequest, Any]):
     """CRUD operations for Credential models."""
 
     def get_by_credential_id(self, db: Session, *, credential_id: str) -> Optional[CredentialModel]:
@@ -68,63 +68,54 @@ class CRUDCredential(CRUDBase[CredentialModel, CredentialIssueRequest, Credentia
             ValueError: If base64 decoding fails.
             SQLAlchemyError: If a database commit error occurs.
         """
-        logger.info(f"Creating credential for agent: {obj_in.agent_id}")
+        logger.info(f"CRUD: Creating credential for agent: {obj_in.agent_id}")
 
-        try:
-            ephemeral_public_key_bytes = base64.b64decode(obj_in.ephemeral_public_key)
-        except Exception as e:
-            logger.error(f"CRUD: Failed to decode ephemeral_public_key '{obj_in.ephemeral_public_key}': {e}")
-            raise ValueError("Invalid base64 for ephemeral_public_key in CRUD") from e
+        # obj_in.ephemeral_public_key and obj_in.signature are already BYTES
+        # due to the Pydantic validator in schemas.credential.CredentialIssueRequest
+        ephemeral_public_key_bytes = obj_in.ephemeral_public_key
+        signature_bytes = obj_in.signature
 
-        signature_bytes: Optional[bytes] = None # Default to None
-        if obj_in.signature is not None: # <--- ADD THIS CHECK
-            try:
-                signature_bytes = base64.b64decode(obj_in.signature)
-            except Exception as e:
-                logger.error(f"CRUD: Failed to decode signature '{obj_in.signature}': {e}")
-                raise ValueError("Invalid base64 for signature in CRUD") from e
+        # Optional: Add defensive type/length checks here again if paranoid, 
+        # but Pydantic should have enforced this.
+        if not isinstance(ephemeral_public_key_bytes, bytes) or len(ephemeral_public_key_bytes) != 32:
+            err_msg = f"CRUD layer received invalid ephemeral_public_key (expected 32 bytes, got {type(ephemeral_public_key_bytes)} len {len(ephemeral_public_key_bytes) if isinstance(ephemeral_public_key_bytes,bytes) else 'N/A'})"
+            logger.error(err_msg)
+            raise ValueError(err_msg)
+        if not isinstance(signature_bytes, bytes) or len(signature_bytes) != 64:
+            err_msg = f"CRUD layer received invalid signature (expected 64 bytes, got {type(signature_bytes)} len {len(signature_bytes) if isinstance(signature_bytes,bytes) else 'N/A'})"
+            logger.error(err_msg)
+            raise ValueError(err_msg)
 
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=obj_in.ttl)
         
-        obj_in_data = jsonable_encoder(obj_in, exclude={
-            'agent_id', # <--- ADD agent_id TO EXCLUDE
-            'scope', # <--- ADD scope TO EXCLUDE 
-            'ephemeral_public_key',
-            'signature',
-            'ttl',
-            #'ephemeral_public_key_bytes',
-            #'signature_bytes'
-        })
-        
+        # Exclude fields that are now bytes and handled manually, or calculated (ttl -> expires_at)
+        create_data = jsonable_encoder(obj_in, exclude={'ephemeral_public_key', 'signature', 'ttl'})
+
         credential_id = str(uuid.uuid4())
-        logger.info(f"Generated credential ID: {credential_id}")
+        logger.info(f"CRUD: Generated credential ID: {credential_id}")
 
         db_obj = self.model(
-            **obj_in_data,
+            **create_data, # Contains agent_id, scope, origin_context (if present)
             credential_id=credential_id,
-            agent_id=obj_in.agent_id, # This is now the sole source for agent_id
-            scope=obj_in.scope, # This is now the sole source for scope
-            ephemeral_public_key=ephemeral_public_key_bytes,
-            signature=signature_bytes,
+            ephemeral_public_key=ephemeral_public_key_bytes, # Pass the bytes directly
+            signature=signature_bytes,                   # Pass the bytes directly
             issued_at=now,
             expires_at=expires_at,
-            status="issued"
-            # Ensure origin_context from obj_in_data is handled or explicitly passed if needed
-            # If origin_context is in obj_in (and thus in obj_in_data), it will be passed by **obj_in_data.
+            status="issued" 
         )
         
-        logger.debug(f"Adding CredentialModel instance to session: ID {credential_id}")
+        logger.debug(f"CRUD: Adding CredentialModel instance to session: ID {credential_id}")
         db.add(db_obj)
         try:
             db.commit()
-            logger.info(f"Committed credential {credential_id} successfully.")
-        except Exception as e:
-            logger.error(f"Database commit failed for credential {credential_id}: {e}", exc_info=True)
+            logger.info(f"CRUD: Committed credential {credential_id} successfully.")
+        except Exception as e: 
+            logger.error(f"CRUD: Database commit failed for credential {credential_id}: {e}", exc_info=True)
             db.rollback()
             raise
         db.refresh(db_obj)
-        logger.debug(f"Refreshed credential instance {credential_id}")
+        logger.debug(f"CRUD: Refreshed credential instance {credential_id}")
         return db_obj
 
     def revoke(self, db: Session, *, credential_id: str) -> Optional[CredentialModel]:

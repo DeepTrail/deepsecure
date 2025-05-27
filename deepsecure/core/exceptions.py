@@ -41,4 +41,8 @@ class InvalidRequestError(APIError):
 class ServiceUnavailableError(APIError):
     """Raised when the service is unavailable (5xx)."""
     def __init__(self, message: str = "Service is currently unavailable. Please try again later.", status_code: int = None, error_details: dict = None):
-        super().__init__(message, status_code, error_details) 
+        super().__init__(message, status_code, error_details)
+
+class IdentityManagerError(DeepSecureClientError):
+    """Raised for errors specific to local identity management operations (keyring, local files)."""
+    pass 
