@@ -90,7 +90,6 @@ def issue(
             # Text output: Print success message AND details
             utils.print_success(f"Credential issued successfully! {origin_msg}")
             utils.console.print("\nCredential details:")
-            # Use the correct key based on backend_issued flag
             cred_id_to_print = credential.get("credential_id") if backend_issued else credential.get("id")
             if cred_id_to_print:
                 utils.console.print(f"[bold]ID:[/] {cred_id_to_print}")
@@ -99,24 +98,23 @@ def issue(
             
             utils.console.print(f"[bold]Agent ID:[/] {credential.get('agent_id', 'N/A')}")
             utils.console.print(f"[bold]Scope:[/] {credential.get('scope', 'N/A')}")
-            expires_ts = credential.get('expires_at')
+            utils.console.print(f"[bold]Status:[/] {credential.get('status', 'N/A')}")
             
-            # Handle both expiry types for printing
-            if isinstance(expires_ts, datetime):
-                expires_str = expires_ts.strftime('%Y-%m-%d %H:%M:%S %Z%z') if expires_ts.tzinfo else expires_ts.strftime('%Y-%m-%d %H:%M:%S UTC')
-            elif isinstance(expires_ts, (int, float)):
-                expires_str = utils.format_timestamp(expires_ts)
-            elif isinstance(expires_ts, str):
-                try:
-                    dt_obj = datetime.fromisoformat(expires_ts.replace('Z', '+00:00'))
-                    expires_str = dt_obj.strftime('%Y-%m-%d %H:%M:%S %Z%z') if dt_obj.tzinfo else dt_obj.strftime('%Y-%m-%d %H:%M:%S UTC')
-                except ValueError:
-                    expires_str = expires_ts
-                except Exception:
-                    expires_str = expires_ts
+            issued_at_val = credential.get('issued_at')
+            if isinstance(issued_at_val, datetime):
+                utils.console.print(f"[bold]Issued At:[/] {issued_at_val.isoformat()}")
+            elif issued_at_val:
+                utils.console.print(f"[bold]Issued At:[/] {issued_at_val}")
             else:
-                expires_str = 'N/A'
-            utils.console.print(f"[bold]Expires:[/] {expires_str}")
+                utils.console.print("[bold]Issued At:[/] N/A")
+
+            expires_at_val = credential.get('expires_at')
+            if isinstance(expires_at_val, datetime):
+                utils.console.print(f"[bold]Expires At:[/] {expires_at_val.isoformat()}")
+            elif expires_at_val:
+                utils.console.print(f"[bold]Expires At:[/] {expires_at_val}")
+            else:
+                utils.console.print("[bold]Expires At:[/] N/A")
             
             # Print Origin Binding if present
             origin_context = credential.get("origin_context")
@@ -126,18 +124,19 @@ def issue(
                     utils.console.print(f"  {key}: {value}")
 
             # Print Ephemeral Public Key
-            eph_pub_key = credential.get("ephemeral_public_key")
+            eph_pub_key = credential.get("ephemeral_public_key_b64")
             if eph_pub_key:
-                utils.console.print("\nEphemeral Public Key:")
-                utils.console.print(f"{eph_pub_key}")
-
+                utils.console.print(f"  Ephemeral Public Key (b64): {eph_pub_key}")
+            
             # Print Ephemeral Private Key
-            eph_priv_key = credential.get("ephemeral_private_key")
+            eph_priv_key = credential.get("ephemeral_private_key_b64")
             if eph_priv_key:
-                utils.console.print("\nEphemeral Private Key (sensitive - handle with care):")
-                utils.console.print(f"{eph_priv_key}")
+                # utils.console.print("  [yellow]Ephemeral Private Key (b64):[/yellow]") # Already part of the next line
+                utils.console.print(f"  [yellow]Ephemeral Private Key (b64): {eph_priv_key}[/yellow]")
+                utils.console.print("  [bold red]Warning: Handle the ephemeral private key securely and ensure it's not logged or stored improperly.[/bold red]")
             else:
-                utils.print_warning("Warning: Ephemeral private key missing from credential dictionary.")
+                # This path should ideally not be taken if client.issue_credential always includes it.
+                utils.console.print("[bold yellow]Warning: Ephemeral private key was not returned by the client method.[/bold yellow]")
 
     except ValueError as e:
         # TODO: Catch more specific exceptions (VaultError, ValueError) for tailored messages.
