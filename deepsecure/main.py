@@ -50,7 +50,7 @@ app.add_typer(configure.app, name="configure")
 def version():
     """Show CLI version."""
     try:
-        version = importlib.metadata.version("deepsecure-cli")
+        version = importlib.metadata.version("deepsecure")
         print(f"DeepSecure CLI version: {version}")
     except importlib.metadata.PackageNotFoundError:
         print("DeepSecure CLI version: 0.0.2 (development)")

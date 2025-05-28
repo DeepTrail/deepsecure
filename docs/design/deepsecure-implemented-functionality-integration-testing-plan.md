@@ -2,7 +2,7 @@
 
 ## Summary of Implemented Functionality
 
-The `deepsecure-cli` project now includes a functional backend service (`credservice`) built with FastAPI, integrated with the core CLI logic for vault operations.
+The DeepSecure project now includes a functional backend service (`credservice`) built with FastAPI, integrated with the core CLI logic for vault operations.
 
 ### Backend (`credservice`)
 
@@ -26,7 +26,7 @@ The `deepsecure-cli` project now includes a functional backend service (`credser
 * **Testing:** Includes unit/integration tests (`pytest`) for backend models, CRUD operations, and API endpoints (including authentication checks and vault logic).
 * **Logging:** Basic request/response logging middleware and application-level logging are in place.
 
-### CLI Client (`deepsecure-cli`)
+### CLI Client (DeepSecure)
 
 * **`BaseClient`:** Updated to handle actual HTTP requests (`requests` library), load backend URL/token from environment variables (`DEEPSECURE_CREDSERVICE_URL`, `DEEPSECURE_CREDSERVICE_API_TOKEN`), and conditionally add the `Authorization` header for backend requests.
 * **`VaultClient`:**
@@ -44,7 +44,7 @@ This plan outlines steps to test the full integration between the CLI and the ru
 
 ### Prerequisites
 
-1. **Build/Install CLI:** Ensure the latest `deepsecure-cli` code is built and installed/available in the testing environment's PATH.
+1. **Build/Install CLI:** Ensure the latest DeepSecure code is built and installed/available in the testing environment's PATH.
 2. **Run Backend Service:** Start the `credservice` FastAPI application (e.g., using `uvicorn credservice.app.main:app --reload --port 8001`). Ensure it's using a known database (e.g., a clean `test.db` SQLite file).
 3. **Configure Environment Variables:** Set the following environment variables for the shell where `deepsecure` CLI commands will be run:
     * `DEEPSECURE_CREDSERVICE_URL=http://localhost:8001` (or the correct host/port where the backend is running)

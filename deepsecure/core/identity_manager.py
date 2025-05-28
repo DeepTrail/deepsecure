@@ -7,6 +7,7 @@ import hashlib
 import base64
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+import sys
 
 import keyring # Import the keyring library
 # Make sure to handle potential import errors for keyring itself if it's optional
@@ -16,27 +17,30 @@ from keyring.errors import NoKeyringError, PasswordDeleteError, PasswordSetError
 # Explicitly import the module and then the instance from it
 from .crypto import key_manager as key_manager_module 
 from .. import utils 
-from .exceptions import IdentityManagerError, DeepSecureClientError
+from ..exceptions import DeepSecureClientError, IdentityManagerError
 
 # Define constants
-IDENTITY_STORE_PATH = Path(os.path.expanduser("~/.deepsecure/identities"))
-DEEPSECURE_DIR = Path(os.path.expanduser("~/.deepsecure"))
-IDENTITY_FILE_MODE = 0o600 # Read/write for user only
-KEYRING_SERVICE_NAME_AGENT_KEYS = "deepsecure-cli-agent-keys"
+_MODULE_DEEPSECURE_DIR = Path(os.path.expanduser("~/.deepsecure"))
+_MODULE_IDENTITY_STORE_PATH = _MODULE_DEEPSECURE_DIR / "identities"
+IDENTITY_FILE_MODE = 0o600
+KEYRING_SERVICE_NAME_AGENT_KEYS = "deepsecure-agent-keys"
 
 class IdentityManager:
-    def __init__(self):
-        self.key_manager = key_manager_module.key_manager # Access instance from module
-        self.identity_store_path = IDENTITY_STORE_PATH
+    def __init__(self, deepsecure_dir_override: Optional[Path] = None, identity_store_path_override: Optional[Path] = None, silent_mode: bool = False):
+        self.key_manager = key_manager_module.key_manager
+        self.silent_mode = silent_mode
+        
+        self.deepsecure_dir = deepsecure_dir_override if deepsecure_dir_override is not None else _MODULE_DEEPSECURE_DIR
+        self.identity_store_path = identity_store_path_override if identity_store_path_override is not None else (self.deepsecure_dir / "identities")
+        
+        # Ensure base directory and identity store directory exist using instance paths
         try:
-            DEEPSECURE_DIR.mkdir(exist_ok=True)
-            self.identity_store_path.mkdir(exist_ok=True)
+            self.deepsecure_dir.mkdir(parents=True, exist_ok=True)
+            self.identity_store_path.mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            # This is a critical failure if directories can't be made.
-            # Consider logging this with standard logging if utils.console isn't for errors
-            utils.console.print(f"[IdentityManager] CRITICAL: Failed to create required directories ({DEEPSECURE_DIR}, {self.identity_store_path}): {e}", style="bold red")
+            if not self.silent_mode:
+                print(f"[IdentityManager __init__] CRITICAL: Failed to create required directories ({self.deepsecure_dir}, {self.identity_store_path}): {e}", file=sys.stderr)
             raise IdentityManagerError(f"Failed to create required directories: {e}")
-
 
     def _generate_agent_id(self) -> str:
         return f"agent-{uuid.uuid4()}"
@@ -71,14 +75,16 @@ class IdentityManager:
         
         metadata_to_save = identity_metadata.copy()
         if "private_key" in metadata_to_save:
-            utils.console.print(f"[IdentityManager] INTERNAL WARNING: _save_identity_metadata_to_file called with private_key for {agent_id}. It will be removed before saving to file.", style="bold orange_red1")
+            if not self.silent_mode:
+                utils.console.print(f"[IdentityManager] INTERNAL WARNING: _save_identity_metadata_to_file called with private_key for {agent_id}. It will be removed before saving to file.", style="bold orange_red1")
             del metadata_to_save["private_key"]
             
         try:
             with open(identity_file, 'w') as f:
                 json.dump(metadata_to_save, f, indent=2)
             identity_file.chmod(IDENTITY_FILE_MODE)
-            utils.console.print(f"[IdentityManager] Saved identity metadata for [cyan]{agent_id}[/cyan] to {identity_file}", style="dim")
+            if not self.silent_mode:
+                utils.console.print(f"[IdentityManager] Saved identity metadata for [cyan]{agent_id}[/cyan] to {identity_file}", style="dim")
         except IOError as e:
             raise IdentityManagerError(f"Failed to save identity metadata for {agent_id} to {identity_file}: {e}")
 
@@ -97,20 +103,22 @@ class IdentityManager:
 
         try:
             keyring.set_password(KEYRING_SERVICE_NAME_AGENT_KEYS, agent_id, private_key_b64)
-            utils.console.print(f"[IdentityManager] Private key for agent [cyan]{agent_id}[/cyan] securely stored in system keyring.", style="green")
+            if not self.silent_mode:
+                utils.console.print(f"[IdentityManager] Private key for agent [cyan]{agent_id}[/cyan] securely stored in system keyring.", style="green")
         except NoKeyringError:
             msg = (f"CRITICAL SECURITY RISK: No system keyring backend found. "
                    f"Private key for agent {agent_id} cannot be stored securely. "
                    f"Aborting identity creation. Please install and configure a keyring backend.")
-            utils.console.print(f"[IdentityManager] {msg}", style="bold red")
+            if not self.silent_mode:
+                utils.console.print(f"[IdentityManager] {msg}", style="bold red")
             raise IdentityManagerError(msg)
         except PasswordSetError as pse:
             msg = f"Failed to store private key in keyring for agent {agent_id} (PasswordSetError): {pse}. Check keyring access and permissions."
-            utils.console.print(f"[IdentityManager] {msg}", style="bold red")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] {msg}", style="bold red")
             raise IdentityManagerError(msg) from pse
         except Exception as e:
             msg = f"An unexpected error occurred while storing private key in keyring for agent {agent_id}: {e}"
-            utils.console.print(f"[IdentityManager] {msg}", style="bold red")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] {msg}", style="bold red")
             raise IdentityManagerError(msg) from e
 
         identity_metadata_for_file = {
@@ -127,7 +135,8 @@ class IdentityManager:
         try:
             identity_to_return["public_key_fingerprint"] = self.get_public_key_fingerprint(public_key_b64)
         except IdentityManagerError as e:
-            utils.console.print(f"[IdentityManager] Warning: Could not generate fingerprint for new identity {agent_id}: {e}", style="yellow")
+            if not self.silent_mode:
+                utils.console.print(f"[IdentityManager] Warning: Could not generate fingerprint for new identity {agent_id}: {e}", style="yellow")
             identity_to_return["public_key_fingerprint"] = "Error/Unavailable"
         
         return identity_to_return
@@ -135,7 +144,8 @@ class IdentityManager:
     def load_identity(self, agent_id: str) -> Optional[Dict[str, Any]]:
         identity_file_path = self.identity_store_path / f"{agent_id}.json"
         if not identity_file_path.exists():
-            utils.console.print(f"[IdentityManager] No local identity metadata file found for agent {agent_id}.", style="dim")
+            if not self.silent_mode:
+                utils.console.print(f"[IdentityManager] No local identity metadata file found for agent {agent_id}.", style="dim")
             return None 
         
         try:
@@ -144,30 +154,32 @@ class IdentityManager:
             if "public_key" not in identity_metadata or identity_metadata.get("id") != agent_id:
                 raise IdentityManagerError(f"Metadata for {agent_id} is corrupted, missing key fields, or ID mismatch.")
         except (json.JSONDecodeError, IOError, KeyError, IdentityManagerError) as e: 
-            utils.console.print(f"[IdentityManager] Error loading or validating metadata for {agent_id} from {identity_file_path}: {e}", style="red")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] Error loading or validating metadata for {agent_id} from {identity_file_path}: {e}", style="red")
             raise IdentityManagerError(f"Corrupted, unreadable, or invalid identity metadata for {agent_id}: {e}")
 
         retrieved_private_key: Optional[str] = None
         try:
             retrieved_private_key = keyring.get_password(KEYRING_SERVICE_NAME_AGENT_KEYS, agent_id)
             if retrieved_private_key:
-                utils.console.print(f"[IdentityManager] Successfully retrieved private key for agent {agent_id} from system keyring.", style="dim")
+                if not self.silent_mode: utils.console.print(f"[IdentityManager] Successfully retrieved private key for agent {agent_id} from system keyring.", style="dim")
             else:
-                utils.console.print(f"[IdentityManager] WARNING: Private key for agent [yellow]{agent_id}[/yellow] was NOT FOUND in the system keyring. Metadata file exists, but private key is missing from secure storage.", style="bold yellow")
-                utils.console.print(f"    Service: '{KEYRING_SERVICE_NAME_AGENT_KEYS}', Username: '{agent_id}'", style="bold yellow")
-                utils.console.print(f"    Signing operations will fail for this agent if it relies on keyring.", style="bold yellow")
+                if not self.silent_mode: 
+                    utils.console.print(f"[IdentityManager] WARNING: Private key for agent [yellow]{agent_id}[/yellow] was NOT FOUND in the system keyring. Metadata file exists, but private key is missing from secure storage.", style="bold yellow")
+                    utils.console.print(f"    Service: '{KEYRING_SERVICE_NAME_AGENT_KEYS}', Username: '{agent_id}'", style="bold yellow")
+                    utils.console.print(f"    Signing operations will fail for this agent if it relies on keyring.", style="bold yellow")
         except NoKeyringError:
-            utils.console.print(f"[IdentityManager] WARNING: No system keyring backend found when trying to load private key for agent [yellow]{agent_id}[/yellow].", style="bold yellow")
-            utils.console.print(f"    Cannot retrieve private key. Signing operations will fail.", style="bold yellow")
+            if not self.silent_mode: 
+                utils.console.print(f"[IdentityManager] WARNING: No system keyring backend found when trying to load private key for agent [yellow]{agent_id}[/yellow].", style="bold yellow")
+                utils.console.print(f"    Cannot retrieve private key. Signing operations will fail.", style="bold yellow")
         except Exception as e:
-            utils.console.print(f"[IdentityManager] WARNING: An unexpected error occurred while trying to retrieve private key from keyring for agent [yellow]{agent_id}[/yellow]: {e}", style="bold yellow")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] WARNING: An unexpected error occurred while trying to retrieve private key from keyring for agent [yellow]{agent_id}[/yellow]: {e}", style="bold yellow")
         
         identity_metadata["private_key"] = retrieved_private_key 
         
         try:
             identity_metadata["public_key_fingerprint"] = self.get_public_key_fingerprint(identity_metadata["public_key"])
         except Exception as e:
-            utils.console.print(f"[IdentityManager] Warning: Could not generate fingerprint for loaded identity {agent_id} (public_key: '{identity_metadata.get('public_key')}'): {e}", style="yellow")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] Warning: Could not generate fingerprint for loaded identity {agent_id} (public_key: '{identity_metadata.get('public_key')}'): {e}", style="yellow")
             identity_metadata["public_key_fingerprint"] = "Error/Unavailable"
             
         return identity_metadata
@@ -180,7 +192,7 @@ class IdentityManager:
             try:
                 with open(identity_file, 'r') as f: data = json.load(f)
                 if not data.get("id") or "public_key" not in data:
-                    utils.console.print(f"[IdentityManager] Warning: Skipping invalid identity metadata file {identity_file.name} (missing id or public_key).", style="yellow")
+                    if not self.silent_mode: utils.console.print(f"[IdentityManager] Warning: Skipping invalid identity metadata file {identity_file.name} (missing id or public_key).", style="yellow")
                     continue
                 summary_item = {
                     "id": data["id"], "name": data.get("name"), 
@@ -189,7 +201,7 @@ class IdentityManager:
                 }
                 identities_summary.append(summary_item)
             except Exception as e: 
-                utils.console.print(f"[IdentityManager] Warning: Could not load/process identity file {identity_file.name} for listing: {e}", style="yellow")
+                if not self.silent_mode: utils.console.print(f"[IdentityManager] Warning: Could not load/process identity file {identity_file.name} for listing: {e}", style="yellow")
         return identities_summary
 
     def delete_identity(self, agent_id: str) -> bool:
@@ -200,27 +212,27 @@ class IdentityManager:
         if identity_file.exists():
             try:
                 identity_file.unlink()
-                utils.console.print(f"[IdentityManager] Deleted identity metadata file for {agent_id}.", style="dim")
+                if not self.silent_mode: utils.console.print(f"[IdentityManager] Deleted identity metadata file for {agent_id}.", style="dim")
                 file_deleted_successfully = True
             except OSError as e:
-                utils.console.print(f"[IdentityManager] Error deleting metadata file {identity_file.name}: {e}", style="red")
+                if not self.silent_mode: utils.console.print(f"[IdentityManager] Error deleting metadata file {identity_file.name}: {e}", style="red")
                 # Do not set file_deleted_successfully to True here
         else:
-            utils.console.print(f"[IdentityManager] No local identity metadata file found for {agent_id} to delete.", style="dim")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] No local identity metadata file found for {agent_id} to delete.", style="dim")
             file_deleted_successfully = True # No file to delete means this part is "successful"
 
         try:
             keyring.delete_password(KEYRING_SERVICE_NAME_AGENT_KEYS, agent_id)
-            utils.console.print(f"[IdentityManager] Deleted private key for agent {agent_id} from system keyring.", style="dim")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] Deleted private key for agent {agent_id} from system keyring.", style="dim")
             keyring_key_deleted_successfully = True
         except PasswordDeleteError: 
-            utils.console.print(f"[IdentityManager] Private key for agent {agent_id} not found in system keyring (considered success for deletion).", style="dim")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] Private key for agent {agent_id} not found in system keyring (considered success for deletion).", style="dim")
             keyring_key_deleted_successfully = True # If it's not there, it's effectively deleted.
         except NoKeyringError:
-            utils.console.print(f"[IdentityManager] Warning: No system keyring backend. Cannot delete private key for agent {agent_id} from keyring. It might still exist if stored previously by other means.", style="bold yellow")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] Warning: No system keyring backend. Cannot delete private key for agent {agent_id} from keyring. It might still exist if stored previously by other means.", style="bold yellow")
             # In this case, keyring_key_deleted_successfully remains False, unless we consider it "success" if no keyring
         except Exception as e:
-            utils.console.print(f"[IdentityManager] Error deleting private key from keyring for agent {agent_id}: {e}", style="red")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] Error deleting private key from keyring for agent {agent_id}: {e}", style="red")
             # keyring_key_deleted_successfully remains False
 
         # Overall success is if both the file is gone (or wasn't there) AND
@@ -244,24 +256,24 @@ class IdentityManager:
         """
         identity_file_path = self.identity_store_path / f"{agent_id}.json"
         if identity_file_path.exists():
-            utils.console.print(f"[IdentityManager] Warning: Metadata file for agent [yellow]{agent_id}[/yellow] already exists. It will be updated, and keyring entry will be set/overwritten.", style="yellow")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] Warning: Metadata file for agent [yellow]{agent_id}[/yellow] already exists. It will be updated, and keyring entry will be set/overwritten.", style="yellow")
 
         try:
             keyring.set_password(KEYRING_SERVICE_NAME_AGENT_KEYS, agent_id, private_key_b64)
-            utils.console.print(f"[IdentityManager] Private key for agent [cyan]{agent_id}[/cyan] securely stored/updated in system keyring.", style="green")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] Private key for agent [cyan]{agent_id}[/cyan] securely stored/updated in system keyring.", style="green")
         except NoKeyringError:
             msg = (f"CRITICAL SECURITY RISK: No system keyring backend found. "
                    f"Private key for agent {agent_id} cannot be stored securely. "
                    f"Aborting persistence of local identity. The agent may be registered on the backend but local keys are not securely stored.")
-            utils.console.print(f"[IdentityManager] {msg}", style="bold red")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] {msg}", style="bold red")
             raise IdentityManagerError(msg)
         except PasswordSetError as pse:
             msg = f"Failed to store private key in keyring for agent {agent_id} (PasswordSetError): {pse}. Check keyring access and permissions."
-            utils.console.print(f"[IdentityManager] {msg}", style="bold red")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] {msg}", style="bold red")
             raise IdentityManagerError(msg) from pse
         except Exception as e:
             msg = f"An unexpected error occurred while storing private key in keyring for agent {agent_id}: {e}"
-            utils.console.print(f"[IdentityManager] {msg}", style="bold red")
+            if not self.silent_mode: utils.console.print(f"[IdentityManager] {msg}", style="bold red")
             raise IdentityManagerError(msg) from e
 
         identity_metadata_for_file = {
@@ -273,6 +285,7 @@ class IdentityManager:
         self._save_identity_metadata_to_file(agent_id, identity_metadata_for_file)
         # utils.console.print(f"[IdentityManager] Local identity metadata for [cyan]{agent_id}[/cyan] saved.", style="dim") # _save_identity_metadata_to_file now prints this
 
+# Singleton instance - this will be created with default paths initially
 identity_manager = IdentityManager()
 
 if __name__ == '__main__':

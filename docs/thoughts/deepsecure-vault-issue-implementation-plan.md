@@ -1,6 +1,6 @@
 # DeepSecure Vault Issue Command Implementation Plan
 
-This document outlines the implementation plan for the `deepsecure vault issue` command, which generates ephemeral credentials for AI agents and tools based on the design principles from `deepsecure-cli-ephermeral-creds-design.md`.
+This document outlines the implementation plan for the `deepsecure vault issue` command, which generates ephemeral credentials for AI agents and tools based on the design principles from the "DeepSecure: Ephemeral Credentials Design" document (`deepsecure-cli-ephermeral-creds-design.md`).
 
 ## Overview
 
