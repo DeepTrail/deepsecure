@@ -1,6 +1,6 @@
-# DeepSecure CLI - Current Implementation Status
+# DeepSecure - Current Implementation Status
 
-This document summarizes the current implementation status of the DeepSecure CLI project, including both the CLI tool and its backend service (`credservice`).
+This document summarizes the current implementation status of the DeepSecure project, including both the CLI tool (`deepsecure-cli`) and its backend service (`credservice`).
 
 ## Fully Implemented / Functional Components
 

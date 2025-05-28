@@ -139,6 +139,8 @@ class VaultClient(base_client.BaseClient):
         if not server_response_dict: raise DeepSecureClientError(f"No response data for revoke {credential_id}.")
         return client_main_schemas.RevocationResponse.model_validate(server_response_dict)
 
+client = VaultClient() # Create and export the singleton instance
+
 if __name__ == "__main__":
     # Now use standard print for all outputs in this test script.
     # Styling will be lost, but functionality can be tested.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build script for deepsecure-cli package
+# Build script for deepsecure package
 
 set -e  # Exit on any error
 

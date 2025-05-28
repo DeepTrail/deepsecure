@@ -7,10 +7,12 @@ import typer
 from typing import Optional
 from pathlib import Path
 from datetime import datetime
+import time
 
-from .. import utils
-from ..core import vault_client
-from ..exceptions import ApiError, VaultError # Import specific exceptions
+from .. import utils as cli_utils # Alias to avoid conflict if utils is used locally
+from ..client import client as actual_vault_client # NEW IMPORT for the new client instance
+from ..exceptions import ApiError, VaultError, DeepSecureClientError, IdentityManagerError # Import specific exceptions
+from ..core.identity_manager import identity_manager as id_manager_instance # Import instance
 
 app = typer.Typer(
     name="vault",
@@ -33,15 +35,6 @@ def issue(
         None, 
         help="Agent identifier. If not provided, a new identity will be generated and stored locally."
     ),
-    origin_binding: bool = typer.Option(
-        True, 
-        help="Enforce origin binding. Binds the credential to the context (hostname, user, etc.) where it was issued."
-    ),
-    local: bool = typer.Option(
-        False, 
-        "--local", 
-        help="Force credential generation locally, even if a backend is configured."
-    ),
     output: str = typer.Option(
         "text", 
         help="Output format (`text` or `json`)."
@@ -49,181 +42,172 @@ def issue(
 ):
     """Generate ephemeral credentials for AI agents and tools.
 
-    This command interfaces with the VaultClient to:
-    1. Obtain or create an agent identity.
-    2. Generate an ephemeral X25519 key pair.
-    3. Sign the ephemeral public key with the agent's long-term Ed25519 key.
-    4. Capture origin context if `origin_binding` is enabled.
-    5. Assemble and return the credential token.
-
+    If no agent_id is provided, a new agent identity will be generated and stored locally.
     The ephemeral private key is included in the output for immediate use
     but should **not** be stored long-term.
     """
-    # Explicitly check for required scope
     if scope is None:
-        utils.print_error("Option --scope is required.")
-        # print_error raises typer.Exit(1), but typer might have exited with 2 already
-        # Let's raise explicitly for clarity in testing
+        cli_utils.print_error("Option --scope is required.")
         raise typer.Exit(code=1)
 
     try:
-        # Pass the local flag to the core client
-        credential = vault_client.client.issue_credential(
+        # Ensure consistent TTL parsing to seconds as expected by vault_client.issue
+        try:
+            ttl_seconds = cli_utils.parse_ttl_to_seconds(ttl)
+        except ValueError as e:
+            cli_utils.print_error(str(e))
+            raise typer.Exit(code=1)
+
+        current_agent_id = agent_id
+        if not current_agent_id:
+            cli_utils.console.print("No agent ID provided. Generating new local identity...")
+            try:
+                # Explicitly import the instance here for debugging
+                from ..core.identity_manager import identity_manager as id_manager_instance_local
+                new_identity = id_manager_instance_local.create_identity(name=f"agent-generated-{int(time.time())}")
+                current_agent_id = new_identity["id"]
+                cli_utils.console.print(f"New local identity generated: {current_agent_id}", style="green")
+            except Exception as e: # Catch broader errors from identity_manager
+                cli_utils.print_error(f"Failed to generate new local identity: {e}")
+                raise typer.Exit(code=1)
+        
+        if not current_agent_id: # Should not happen if logic above is correct
+            cli_utils.print_error("Critical: Agent ID is still None after attempting generation.")
+            raise typer.Exit(code=1)
+
+        # The vault_client.client.issue now expects agent_id and ttl (as int seconds)
+        # It does not use origin_binding or local from CLI directly anymore, that logic is internal or part of a different client.
+        credential = actual_vault_client.issue(
             scope=scope,
-            ttl=ttl,
-            agent_id=agent_id,
-            origin_binding=origin_binding,
-            local_only=local # Pass the flag
+            ttl=ttl_seconds,
+            agent_id=current_agent_id
         )
         
-        # Determine if backend was likely used by checking the credential ID key
-        backend_issued = "credential_id" in credential
-        origin_msg = "(Backend)" if backend_issued else "(Local)"
+        backend_issued = True # Current client.issue always interacts or tries to interact with backend
+                               # and doesn't have a pure local_only path like the old vault_client.issue_credential
+        origin_msg = "(Backend Flow)" # Reflecting new client behavior
         
-        if output == "json":
-            # JSON output: ONLY print the JSON
-            output_credential = credential.copy()
-            if isinstance(output_credential.get('expires_at'), datetime):
-                output_credential['expires_at'] = output_credential['expires_at'].isoformat()
-            utils.print_json(output_credential)
+        if output.lower() == "json":
+            # Pass the Pydantic model directly to print_json
+            cli_utils.print_json(credential) 
         else:
-            # Text output: Print success message AND details
-            utils.print_success(f"Credential issued successfully! {origin_msg}")
-            utils.console.print("\nCredential details:")
-            cred_id_to_print = credential.get("credential_id") if backend_issued else credential.get("id")
-            if cred_id_to_print:
-                utils.console.print(f"[bold]ID:[/] {cred_id_to_print}")
-            else:
-                utils.print_error("Error: Credential ID key ('id' or 'credential_id') missing from response.")
+            cli_utils.print_success(f"Credential issued successfully! {origin_msg}")
+            cli_utils.console.print("\nCredential details:")
+            cli_utils.console.print(f"[bold]Credential ID:[/] {credential.credential_id}")
+            cli_utils.console.print(f"[bold]Agent ID:[/] {credential.agent_id}")
+            cli_utils.console.print(f"[bold]Scope:[/] {credential.scope}")
+            cli_utils.console.print(f"[bold]Issued At:[/] {credential.issued_at.isoformat()}")
+            cli_utils.console.print(f"[bold]Expires At:[/] {credential.expires_at.isoformat()}")
             
-            utils.console.print(f"[bold]Agent ID:[/] {credential.get('agent_id', 'N/A')}")
-            utils.console.print(f"[bold]Scope:[/] {credential.get('scope', 'N/A')}")
-            utils.console.print(f"[bold]Status:[/] {credential.get('status', 'N/A')}")
-            
-            issued_at_val = credential.get('issued_at')
-            if isinstance(issued_at_val, datetime):
-                utils.console.print(f"[bold]Issued At:[/] {issued_at_val.isoformat()}")
-            elif issued_at_val:
-                utils.console.print(f"[bold]Issued At:[/] {issued_at_val}")
-            else:
-                utils.console.print("[bold]Issued At:[/] N/A")
+            if credential.origin_context:
+                cli_utils.console.print("\nOrigin Binding:")
+                for key, value in credential.origin_context.items():
+                    cli_utils.console.print(f"  {key}: {value}")
 
-            expires_at_val = credential.get('expires_at')
-            if isinstance(expires_at_val, datetime):
-                utils.console.print(f"[bold]Expires At:[/] {expires_at_val.isoformat()}")
-            elif expires_at_val:
-                utils.console.print(f"[bold]Expires At:[/] {expires_at_val}")
-            else:
-                utils.console.print("[bold]Expires At:[/] N/A")
+            if credential.ephemeral_public_key_b64:
+                cli_utils.console.print(f"  Ephemeral Public Key (b64): {credential.ephemeral_public_key_b64}")
             
-            # Print Origin Binding if present
-            origin_context = credential.get("origin_context")
-            if origin_context:
-                utils.console.print("\nOrigin Binding:")
-                for key, value in origin_context.items():
-                    utils.console.print(f"  {key}: {value}")
+            if credential.ephemeral_private_key_b64:
+                cli_utils.console.print(f"  [yellow]Ephemeral Private Key (b64): {credential.ephemeral_private_key_b64}[/yellow]")
+                cli_utils.console.print("  [bold red]Warning: Handle the ephemeral private key securely and ensure it's not logged or stored improperly.[/bold red]")
 
-            # Print Ephemeral Public Key
-            eph_pub_key = credential.get("ephemeral_public_key_b64")
-            if eph_pub_key:
-                utils.console.print(f"  Ephemeral Public Key (b64): {eph_pub_key}")
-            
-            # Print Ephemeral Private Key
-            eph_priv_key = credential.get("ephemeral_private_key_b64")
-            if eph_priv_key:
-                # utils.console.print("  [yellow]Ephemeral Private Key (b64):[/yellow]") # Already part of the next line
-                utils.console.print(f"  [yellow]Ephemeral Private Key (b64): {eph_priv_key}[/yellow]")
-                utils.console.print("  [bold red]Warning: Handle the ephemeral private key securely and ensure it's not logged or stored improperly.[/bold red]")
-            else:
-                # This path should ideally not be taken if client.issue_credential always includes it.
-                utils.console.print("[bold yellow]Warning: Ephemeral private key was not returned by the client method.[/bold yellow]")
-
-    except ValueError as e:
-        # TODO: Catch more specific exceptions (VaultError, ValueError) for tailored messages.
-        utils.print_error(f"Error issuing credential: {str(e)}")
+    except VaultError as e:
+        cli_utils.print_error(f"Vault operation error: {str(e)}")
         raise typer.Exit(code=1)
-    
+    except DeepSecureClientError as e: # Catching the error from client.py
+        cli_utils.print_error(f"Client error: {str(e)}")
+        raise typer.Exit(code=1)
+    except ApiError as e:
+        cli_utils.print_error(f"API error: {str(e)}")
+        raise typer.Exit(code=1)
+    except ValueError as e: # Catch TTL parsing or other value errors
+        cli_utils.print_error(f"Input error: {str(e)}")
+        raise typer.Exit(code=1)
+    except Exception as e: # Generic catch-all for unexpected issues
+        cli_utils.print_error(f"An unexpected error occurred in 'vault issue': {type(e).__name__} - {str(e)}")
+        raise typer.Exit(code=1)
+
 @app.command("revoke")
 def revoke(
-    id: str = typer.Option(
-        ..., 
-        help="ID of the credential to revoke. **Required**."
-    ),
-    local: bool = typer.Option(
-        False, 
-        help="Only perform revocation in the local list, do not attempt backend revocation."
-    )
+    id: str = typer.Option(..., help="ID of the credential to revoke. **Required**."),
 ):
-    """Revoke a credential.
-
-    By default, attempts backend revocation (placeholder) AND updates the
-    local revocation list (`~/.deepsecure/revoked_creds.json`).
-    Use `--local` to only update the local list.
-    """
+    """Revoke a credential via the backend service."""
     try:
-        # Pass the local flag to the core client method
-        result = vault_client.client.revoke_credential(id, local_only=local)
-        
-        if result:
-            if local:
-                utils.print_success(f"Added credential {id} to local revocation list.")
-            else:
-                # Updated message: If result is True and not local, it means backend 
-                # attempt succeeded (or didn't fail critically) AND local update happened.
-                utils.print_success(f"Successfully revoked credential {id} (Backend attempt successful + local update).")
+        revoke_response_model = actual_vault_client.revoke(credential_id=id)
+        if revoke_response_model and revoke_response_model.status == "revoked":
+            cli_utils.print_success(f"Successfully revoked credential {id}. Status: {revoke_response_model.status}")
+        elif revoke_response_model:
+            cli_utils.print_warning(f"Credential {id} revocation status: {revoke_response_model.status}")
         else:
-            # VaultClient prints specific warnings/errors
-            utils.print_error(f"Failed to revoke credential {id}. Check logs for details.", exit_code=1)
+            cli_utils.print_error(f"Failed to revoke credential {id}. No response from client.", exit_code=1)
             
+    except DeepSecureClientError as e:
+        cli_utils.print_error(f"Client error during revocation: {str(e)}")
+        raise typer.Exit(code=1)
+    except ApiError as e:
+        cli_utils.print_error(f"API error during revocation: {str(e)}")
+        raise typer.Exit(code=1)
     except Exception as e:
-        utils.print_error(f"Error during revocation: {str(e)}")
+        cli_utils.print_error(f"Error during revocation: {str(e)}")
         raise typer.Exit(code=1)
 
 @app.command("rotate")
 def rotate(
-    agent_id: str = typer.Option(
-        ...,
-        help="Identifier of the agent whose identity key should be rotated. **Required**."
-    ),
-    type: str = typer.Option(
-        "agent-identity",
-        help="Type of credential to rotate. Currently only `agent-identity` is supported."
-    ),
-    local: bool = typer.Option(
-        False,
-        "--local",
-        help="Force rotation locally, do not attempt backend notification."
-    )
+    agent_id: str = typer.Option(..., help="Identifier of the agent whose identity key should be rotated. **Required**.")
 ):
-    """Rotate the long-lived identity key for a specified agent.
+    """Rotate the long-lived identity key for a specified agent via the backend service.
 
-    Updates the local identity file (`~/.deepsecure/identities/`) first.
-    If `--local` is not used, attempts to notify the backend service.
+    This command will generate a new Ed25519 key pair locally for the agent,
+    then notify the backend service of the new public key. If successful,
+    the new local keys (private key in keyring, public metadata in file) are updated.
     """
-    if type != "agent-identity":
-         utils.print_error(f"Error: Unsupported rotation type '{type}'. Currently only 'agent-identity' is supported.")
-         raise typer.Exit(code=1)
-
+    cli_utils.console.print(f"Initiating key rotation for agent: {agent_id}")
     try:
-        result = vault_client.client.rotate_credential(
-            agent_id=agent_id,
-            credential_type=type,
-            local_only=local
-        )
+        cli_utils.console.print("Generating new local Ed25519 key pair...")
+        new_keys = id_manager_instance.generate_ed25519_keypair_raw_b64()
+        new_public_key_b64 = new_keys["public_key"]
+        new_private_key_b64 = new_keys["private_key"]
+        cli_utils.console.print(f"New key pair generated. Public key starts: {new_public_key_b64[:20]}...")
 
-        status_msg = result.get("status", "Unknown status")
-        backend_msg = f"Backend Notified: {result.get('backend_notified', 'N/A')}"
-        utils.print_success(f"{status_msg} for agent {agent_id}. {backend_msg}")
+        cli_utils.console.print(f"Notifying backend of new public key for agent {agent_id}...")
+        rotation_response = actual_vault_client.rotate(agent_id=agent_id, new_public_key_b64=new_public_key_b64)
 
-    # Catch specific errors first
-    except VaultError as e:
-         utils.print_error(f"Vault error during rotation for agent {agent_id}: {e}")
+        if rotation_response and rotation_response.status == "success_on_client_for_204":
+            cli_utils.print_success(f"Backend successfully notified of key rotation for agent {agent_id}.")
+            
+            cli_utils.console.print(f"Updating local identity store for agent {agent_id} with new keys...")
+            try:
+                existing_identity_metadata = id_manager_instance.load_identity(agent_id)
+                original_name = existing_identity_metadata.get("name") if existing_identity_metadata else None
+                original_created_at = int(existing_identity_metadata.get("created_at", int(time.time()))) if existing_identity_metadata else int(time.time())
+
+                id_manager_instance.persist_generated_identity(
+                    agent_id=agent_id,
+                    public_key_b64=new_public_key_b64,
+                    private_key_b64=new_private_key_b64,
+                    name=original_name,
+                    created_at_timestamp=original_created_at
+                )
+                cli_utils.print_success(f"Local identity for agent {agent_id} updated successfully.")
+            except IdentityManagerError as e_persist:
+                cli_utils.print_error(f"Backend key rotation successful, BUT FAILED to update local identity store for agent {agent_id}: {e_persist}")
+                cli_utils.print_warning("CRITICAL: Your local keys are now out of sync with the backend. This may lead to signing issues. Consider re-registering or manual intervention.")
+        elif rotation_response:
+            cli_utils.print_error(f"Backend rotation notification for agent {agent_id} returned status: {rotation_response.status}. Local keys NOT updated.")
+            raise typer.Exit(code=1)
+        else:
+            cli_utils.print_error(f"Key rotation for agent {agent_id} failed to get successful confirmation from backend. Local keys NOT updated.")
+            raise typer.Exit(code=1)
+
+    except IdentityManagerError as e_id:
+         cli_utils.print_error(f"Identity management error during rotation for agent {agent_id}: {e_id}")
          raise typer.Exit(code=1)
-    except ApiError as e:
-         # This should now catch the detailed ApiError from the client
-         utils.print_error(f"Backend API error during rotation notification for agent {agent_id}: {e}")
+    except DeepSecureClientError as e_client:
+         cli_utils.print_error(f"Client error during rotation for agent {agent_id}: {e_client}")
          raise typer.Exit(code=1)
-    # Catch generic/unexpected errors last
-    except Exception as e:
-        utils.print_error(f"Unexpected error rotating credential for agent {agent_id}: {e}")
+    except ApiError as e_api:
+         cli_utils.print_error(f"Backend API error during rotation for agent {agent_id}: {e_api}. Local keys NOT updated.")
+         raise typer.Exit(code=1)
+    except Exception as e_exc:
+        cli_utils.print_error(f"Unexpected error rotating key for agent {agent_id}: {type(e_exc).__name__} - {e_exc}. Local keys NOT updated.")
         raise typer.Exit(code=1)

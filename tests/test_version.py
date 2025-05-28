@@ -11,7 +11,7 @@ def test_version_command():
     with patch('builtins.print') as mock_print:
         # Try to get the version using importlib.metadata
         try:
-            expected_version = importlib.metadata.version("deepsecure-cli")
+            expected_version = importlib.metadata.version("deepsecure")
             expected_output = f"DeepSecure CLI version: {expected_version}"
         except importlib.metadata.PackageNotFoundError:
             # For development/testing when package isn't installed

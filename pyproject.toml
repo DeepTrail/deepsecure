@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "deepsecure-cli"
-version = "0.0.8"
+name = "deepsecure"
+version = "0.1.0"
 authors = [
   { name="DeepSecure Team", email="mahendra@deeptrail.com" },
 ]
