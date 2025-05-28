@@ -4,7 +4,7 @@ import keyring
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-APP_NAME = "deepsecure-cli"
+APP_NAME = "deepsecure"
 CONFIG_DIR = Path.home() / ".deepsecure"
 CONFIG_FILE_PATH = CONFIG_DIR / "config.toml"
 

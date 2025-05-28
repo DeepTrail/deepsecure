@@ -46,4 +46,12 @@ class AuditLoggerError(DeepSecureError):
     # ... existing code ...
     pass
 
+class IdentityManagerError(DeepSecureError):
+    """Raised for errors specific to identity management operations."""
+    pass
+
+class DeepSecureClientError(DeepSecureError):
+    """Raised for general client-side errors not covered by more specific exceptions."""
+    pass
+
 # TODO: Add more specific exceptions as needed (e.g., PolicyError, SandboxError). 

@@ -5,11 +5,13 @@ from pathlib import Path
 import time # For created_at timestamp
 import logging # <--- Added import for logging
 import base64 # For validating public key from file if needed
+from typer.core import TyperGroup
 
 from .. import utils
+from ..core import agent_client # For backend calls
 from ..core.identity_manager import identity_manager, KEYRING_SERVICE_NAME_AGENT_KEYS # Import constant for keyring direct use
-from ..core.agent_client import client as agent_api_client # Use the client singleton
-from ..exceptions import IdentityManagerError, ApiError # Assuming ApiError for agent_client
+from ..exceptions import ApiError, IdentityManagerError # Corrected import
+from ..core import schemas as client_schemas # For request/response models if needed by CLI
 import keyring # Import keyring for direct use if needed for set_password
 
 logger = logging.getLogger(__name__) # <--- Added logger instance
