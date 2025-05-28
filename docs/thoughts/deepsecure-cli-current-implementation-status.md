@@ -55,7 +55,7 @@ This document summarizes the current implementation status of the DeepSecure pro
     * Tests exist and pass for `vault issue`, `revoke`, `rotate` in both `--local` mode and backend mode (using mocking).
 
 8. **Packaging (`pyproject.toml`, `scripts/build_package.sh`):**
-    * Configured for building the `deepsecure-cli` package (v0.0.5 last built).
+    * Configured for building the `deepsecure` package (v0.0.5 last built).
     * Build script includes cleaning, testing, building, and checking steps.
 
 9. **Backend (`credservice`):**
