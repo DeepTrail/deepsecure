@@ -20,7 +20,7 @@ Building and deploying AI agents presents unique security challenges, especially
 
 For a deeper dive into the project's vision, see the [Comprehensive Agent Security and Governance Platform Vision](docs/design/deepsecure-cli-comprehensive-agent-security-and-governance-platform.md) and [Secretless Identity & Authentication for AI Agents](docs/design/deepsecure-identity-authentication-for-ai-agents-architecture-design-guidance.md).
 
-## Key Features (v0.1.1)
+## Key Features (v0.1.2)
 
 *   **Agent Identity Management (`deepsecure agent ...`):**
     *   `register`: Explicitly register new AI agents with the `credservice` backend.
@@ -61,9 +61,9 @@ For a deeper dive into the project's vision, see the [Comprehensive Agent Securi
     *   **Linux:** Often requires setup. Common backends include `SecretService` (requires a D-Bus service like `gnome-keyring-daemon` or `keepassxc`) or `KWallet`. You may need to install Python packages like `keyrings.alt` or `secretstorage`. `deepsecure` will raise an error during operations requiring secure key storage if a backend is not found.
 
 ### From PyPI (Recommended)
-The easiest way to install DeepSecure (version 0.1.1) is from PyPI:
+The easiest way to install DeepSecure (version 0.1.2) is from PyPI:
 ```bash
-pip install deepsecure==0.1.1
+pip install deepsecure==0.1.2
 ```
 
 To verify installation:
@@ -203,11 +203,11 @@ def access_secure_database(query: str) -> str:
 
 *(Links to detailed guides for each framework will be added in the `/docs/integrations/` directory as they are developed).*
 
-## Command Overview (v0.1.1)
+## Command Overview (v0.1.2)
 
 DeepSecure provides the following core command groups and commands:
 
-| Command Group | Description                                       | Commands                                        | Status      | Core Responsibilities (Current v0.1.1)                                                                                                                                                              |
+| Command Group | Description                                       | Commands                                        | Status      | Core Responsibilities (Current v0.1.2)                                                                                                                                                              |
 |---------------|---------------------------------------------------|-------------------------------------------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `agent`       | Manage AI agent identities & lifecycle            | `register`, `list`, `describe`, `delete`          | Implemented | • Register new agents with `credservice`. <br> • Generate local Ed25519 key pairs, storing private keys in system keyring. <br> • Manage local metadata files. <br> • List & describe agents. <br> • Deactivate (soft delete) agents in `credservice` & purge local identity. |
 | `vault`       | Manage secure credentials for AI agents           | `issue`, `revoke`, `rotate`                     | Implemented | • Issue dynamic, short-lived credentials signed by a registered agent's private key (from keyring). <br> • Revoke active credentials via `credservice`. <br> • Rotate an agent\'s long-term identity key (notifies `credservice`). |
