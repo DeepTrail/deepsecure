@@ -182,7 +182,7 @@ The `utils.py` module provides common formatting functions.
 The CLI will be distributed as a Python package via PyPI, allowing installation via:
 
 ```bash
-pip install deepsecure-cli
+pip install deepsecure
 ```
 
 ## 7. Future Extensions
