@@ -13,11 +13,16 @@ import sys
 from pathlib import Path
 import requests
 import logging # Import logging
+import base64
+from cryptography.hazmat.primitives.asymmetric import ed25519 as ed25519_crypto
+from pydantic import ValidationError as PydanticValidationError # Explicit import for clarity
 
 from . import base_client
 from .crypto.key_manager import key_manager
 from .audit_logger import audit_logger
 from .. import exceptions
+from .identity_manager import identity_manager
+from ..core import schemas as client_schemas # Import client-side Pydantic schemas for request payload
 
 logger = logging.getLogger(__name__) # Define logger
 
@@ -46,12 +51,10 @@ class VaultClient(base_client.BaseClient):
         super().__init__()
         self.key_manager = key_manager
         self.audit_logger = audit_logger
-        self.identity_store_path = IDENTITY_STORE_PATH
         self.revocation_list_file = REVOCATION_LIST_FILE
         
         # Ensure directories exist
         DEEPSECURE_DIR.mkdir(exist_ok=True)
-        self.identity_store_path.mkdir(exist_ok=True)
         
         # Load local revocation list
         self._revoked_ids: Set[str] = self._load_revocation_list()
@@ -103,94 +106,6 @@ class VaultClient(base_client.BaseClient):
         
     # --- Identity and Context Management (mostly unchanged) --- #
     
-    def _get_agent_identity(self, agent_id: Optional[str] = None) -> (Dict[str, Any], bool):
-        """
-        Get or create an agent identity, storing it locally.
-
-        If agent_id is provided, it attempts to load the identity from a local
-        JSON file. If not found or agent_id is None, it generates a new identity
-        (including an Ed25519 key pair) and saves it.
-
-        Args:
-            agent_id: Optional specific agent identifier to look up or create.
-                      If None, a new UUID-based ID is generated.
-
-        Returns:
-            A tuple containing:
-                - A dictionary with the agent's identity details:
-                  {'id': str, 'created_at': int, 'private_key': str, 'public_key': str}
-                - A boolean, True if the identity was newly created, False otherwise.
-        """
-        was_newly_created = False # Flag to track if new identity is made
-        if agent_id is None:
-            # Generate a new random agent ID
-            agent_id = f"agent-{uuid.uuid4()}"
-            # If agent_id was None, it implies we intend to create a new one,
-            # but we still check existence below in case of a collision or manual file placement.
-        
-        # Check if we have this identity stored
-        identity_file = self.identity_store_path / f"{agent_id}.json"
-        
-        if identity_file.exists():
-            # Load existing identity
-            try:
-                with open(identity_file, 'r') as f:
-                    identity = json.load(f)
-                    # TODO: Add validation for the loaded identity structure.
-            except (json.JSONDecodeError, IOError) as e:
-                raise exceptions.VaultError(f"Failed to load identity for {agent_id}: {e}") from e
-        else:
-            # Create a new identity
-            was_newly_created = True # Set flag
-            keys = self.key_manager.generate_identity_keypair()
-            
-            identity = {
-                "id": agent_id,
-                "created_at": int(time.time()),
-                "private_key": keys["private_key"],
-                "public_key": keys["public_key"]
-            }
-            
-            # Store the identity
-            try:
-                with open(identity_file, 'w') as f:
-                    json.dump(identity, f)
-                identity_file.chmod(0o600) # Restrict permissions
-            except IOError as e:
-                raise exceptions.VaultError(f"Failed to save identity for {agent_id}: {e}") from e
-        
-        return identity, was_newly_created # Return flag along with identity
-    
-    def _register_agent_with_backend(self, agent_id: str, public_key_b64: str) -> bool:
-        """Register a new agent with the backend service."""
-        if not (self.backend_url and self.backend_api_token):
-            logger.warning("Backend not configured. Cannot register agent with backend.")
-            return False
-
-        logger.info(f"Attempting to register new agent {agent_id} with backend.")
-        payload = {
-            "agent_id": agent_id,
-            "current_public_key": public_key_b64 
-        }
-        try:
-            response_data = self._request(
-                "POST",
-                "/api/v1/agents",
-                data=payload,
-                is_backend_request=True
-            )
-            logger.info(f"Successfully registered agent {agent_id} with backend. Response: {response_data}")
-            return True
-        except exceptions.ApiError as e:
-            logger.error(f"Failed to register agent {agent_id} with backend: {e}", exc_info=True)
-            if e.status_code == 409: # HTTP 409 Conflict
-                logger.warning(f"Agent {agent_id} already exists on backend or conflict occurred. Proceeding as if registered.")
-                return True 
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error registering agent {agent_id} with backend: {e}", exc_info=True)
-            return False
-
     def _capture_origin_context(self) -> Dict[str, Any]:
         """
         Capture information about the credential issuance origin environment.
@@ -371,169 +286,143 @@ class VaultClient(base_client.BaseClient):
     
     # --- Core Credential Operations --- #
     
-    def issue_credential(self, scope: str, ttl: str, agent_id: Optional[str] = None,
+    def issue_credential(self, scope: str, ttl: str, agent_id: str, # agent_id is now mandatory
                         origin_context: Optional[Dict[str, Any]] = None,
                         origin_binding: bool = True,
-                        local_only: bool = False) -> Dict[str, Any]:
-        """
-        Issue an ephemeral credential.
+                        local_only: bool = False # local_only flag might be deprecated if all issuance goes to backend
+                        ) -> Dict[str, Any]: # Should return client_schemas.CredentialResponse eventually
+        
+        logger.info(f"[VaultClient Core] Issuing credential for agent: {agent_id}, scope: {scope}, ttl: {ttl}")
+        try:
+            ttl_seconds = self._parse_ttl_to_seconds(ttl)
+        except ValueError as e:
+            self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=f"Invalid TTL: {e}")
+            raise
 
-        If `local_only` is True, performs all generation and signing locally.
-        If `local_only` is False (default), attempts to issue via the backend.
+        # 1. Load agent identity using IdentityManager (gets keys from Keyring)
+        agent_identity = identity_manager.load_identity(agent_id)
+        if not agent_identity:
+            err_msg = f"Local identity for agent_id '{agent_id}' not found by IdentityManager."
+            logger.error(f"[VaultClient Core] {err_msg}")
+            self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=err_msg)
+            raise exceptions.VaultError(err_msg)
 
-        Args:
-            scope: Scope of access (e.g., 'db:readonly', 'api:full').
-            ttl: Time-to-live string (e.g., '5m', '1h'). **Backend expects seconds (int)**.
-            agent_id: Optional agent identifier. If None, a new identity is created.
-            origin_context: Optional pre-captured origin context.
-            origin_binding: If True, capture/use origin context.
-            local_only: If True, force local generation.
+        # --- Add this log to verify the public key associated with the loaded private key ---
+        loaded_public_key_b64 = agent_identity.get("public_key")
+        logger.info(f"[VaultClient Core] Public key from loaded local identity for {agent_id}: {loaded_public_key_b64}")
+        # -------------------------------------------------------------------------------------
 
-        Returns:
-            A dictionary representing the issued credential, including the ephemeral
-            private key (whether issued locally or via backend).
+        agent_private_key_b64 = agent_identity.get("private_key")
+        logger.info(f"[VaultClient Core] Private key loaded from IdentityManager for {agent_id} (first 10 chars): {str(agent_private_key_b64)[:10]}...")
+        if not agent_private_key_b64:
+            err_msg = f"Private key for agent_id '{agent_id}' not found via IdentityManager (keyring). Cannot sign request."
+            logger.error(f"[VaultClient Core] {err_msg}")
+            self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=err_msg)
+            raise exceptions.VaultError(err_msg)
 
-        Raises:
-            ValueError: If the TTL format is invalid or backend URL/token missing.
-            VaultError: If identity loading/saving fails.
-            ApiError: If backend communication fails.
-        """
-        # 1. Get or create agent identity (needed for both local and backend)
-        agent_identity, was_newly_created = self._get_agent_identity(agent_id)
-        current_agent_id = agent_identity['id']
-        current_public_key_b64 = agent_identity['public_key'] # Get public key for registration
-
-        # --- Attempt Agent Registration if New and Backend Mode ---
-        if was_newly_created and not local_only and self.backend_url and self.backend_api_token:
-            logger.info(f"New agent {current_agent_id} created locally, attempting backend registration.")
-            # Pass the Ed25519 public key for registration
-            registration_successful = self._register_agent_with_backend(current_agent_id, current_public_key_b64)
-            if not registration_successful:
-                # If registration fails, log a warning and fall back to local issuance behavior.
-                # This maintains the ability to issue credentials even if backend registration has an issue,
-                # though such credentials won't be verifiable by a backend that doesn't know the agent.
-                logger.warning(
-                    f"Backend registration for new agent {current_agent_id} failed. Proceeding with local issuance, but this agent may not be known to the backend."
-                )
-                # To strictly enforce backend registration, you might choose to raise an error here instead.
-                # For now, we allow fallback to local to ensure CLI can still issue something.
-                local_only = True # Force local issuance if registration failed
-
-        # 2. Generate ephemeral keypair (X25519) (needed for both)
+        # 2. Generate ephemeral keypair (X25519)
         ephemeral_keys = self.key_manager.generate_ephemeral_keypair()
         ephemeral_public_key_b64 = ephemeral_keys["public_key"]
-        ephemeral_private_key_b64 = ephemeral_keys["private_key"] # Keep this safe!
+        ephemeral_private_key_b64_to_return = ephemeral_keys["private_key"]
 
-        # 3. Sign the ephemeral public key (with Ed25519 identity key) (needed for both)
-        signature_b64 = self.key_manager.sign_ephemeral_key(
-            ephemeral_public_key_b64,
-            agent_identity["private_key"]
-        )
+        # 3. Sign the ephemeral public key
+        signature_b64_str: str = "__dummy_signature_init_value__" # Initialize to ensure it's not None by an error in try block
+        try:
+            logger.info(f"[VaultClient Core] Signing for {agent_id} using private key (type: {type(agent_private_key_b64)})")
+            raw_agent_private_key_bytes = base64.b64decode(agent_private_key_b64)
+            if len(raw_agent_private_key_bytes) != 32:
+                raise ValueError("Agent private key (decoded) is not 32 bytes.")
+            agent_private_key_obj = ed25519_crypto.Ed25519PrivateKey.from_private_bytes(raw_agent_private_key_bytes)
+            
+            raw_ephemeral_public_key_bytes = base64.b64decode(ephemeral_public_key_b64)
+            if len(raw_ephemeral_public_key_bytes) != 32:
+                 raise ValueError("Ephemeral public key (decoded) is not 32 bytes for signing.")
 
-        # 4. Get origin context if needed (needed for both, potentially)
+            signature_bytes = agent_private_key_obj.sign(raw_ephemeral_public_key_bytes)
+            signature_b64_str = base64.b64encode(signature_bytes).decode('utf-8') # Actual assignment
+            logger.info(f"[VaultClient Core] Successfully signed ephemeral key for {agent_id}. Signature (first 10): {signature_b64_str[:10]}...")
+        except Exception as e:
+            err_msg = f"Failed to sign ephemeral key for agent {agent_id}: {e}"
+            logger.error(f"[VaultClient Core] {err_msg}", exc_info=True)
+            self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=err_msg)
+            # This raise will stop execution before Pydantic validation if signing fails
+            raise exceptions.VaultError(err_msg) from e 
+
+        # 4. Get origin context if needed
         captured_context = {}
         if origin_binding:
             captured_context = origin_context if origin_context is not None else self._capture_origin_context()
 
-        # 5. Parse TTL (needed for backend) - Backend expects integer seconds
+        # 5. Prepare payload for backend using client-side Pydantic schema
         try:
-            # Use _calculate_expiry logic to get timedelta, then total seconds
-            ttl_pattern = re.compile(r'^(\d+)([smhdw])$')
-            match = ttl_pattern.match(ttl)
-            if not match:
-                raise ValueError(f"Invalid TTL format: {ttl}.")
-            value, unit = match.groups()
-            value = int(value)
-            delta = None
-            if unit == 's': delta = timedelta(seconds=value)
-            elif unit == 'm': delta = timedelta(minutes=value)
-            elif unit == 'h': delta = timedelta(hours=value)
-            elif unit == 'd': delta = timedelta(days=value)
-            elif unit == 'w': delta = timedelta(weeks=value)
-            if delta is None: raise ValueError(f"Invalid TTL unit: {unit}")
-            ttl_seconds = int(delta.total_seconds())
-            if ttl_seconds <= 0: raise ValueError("TTL must be positive.")
-        except ValueError as e:
-             audit_logger.log_credential_issuance_failed(agent_id=current_agent_id, scope=scope, reason=f"Invalid TTL: {e}")
-             raise
+            logger.info(f"[VaultClient Core] Preparing payload. Signature to use (first 10): {signature_b64_str[:10]}...")
+            request_payload = client_schemas.CredentialIssueRequest(
+                agent_id=agent_id,
+                ephemeral_public_key=ephemeral_public_key_b64,
+                signature=signature_b64_str, 
+                ttl=ttl_seconds, # Ensure ttl_seconds is defined from _parse_ttl_to_seconds
+                scope=scope,
+                origin_context=captured_context if origin_binding else None
+            )
+            payload_dict = request_payload.model_dump(exclude_none=True)
+        except PydanticValidationError as e: 
+            err_msg = f"Client-side payload validation error (Pydantic): {e}"
+            logger.error(f"[VaultClient Core] {err_msg}", exc_info=True)
+            self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=err_msg)
+            # This is where the "Input should be a valid string" for signature would be caught
+            raise exceptions.InvalidRequestError(err_msg, error_details=e.errors()) from e
 
-        # --- Attempt Backend Issuance ---
-        if not local_only and self.backend_url and self.backend_api_token:
-            logger.info(f"Attempting backend credential issuance for agent {current_agent_id}")
-            try:
-                payload = {
-                    "agent_id": current_agent_id,
-                    "ephemeral_public_key": ephemeral_public_key_b64,
-                    "signature": signature_b64,
-                    "ttl": ttl_seconds,
-                    "scope": scope,
-                    "origin_context": captured_context if origin_binding else None,
-                }
-                # Remove None values from payload
-                payload = {k: v for k, v in payload.items() if v is not None}
+        # 6. Backend Issuance (No local_only fallback for this version of VaultClient)
+        logger.info(f"[VaultClient Core] Attempting backend credential issuance for agent {agent_id}")
+        try:
+            # Server expects string fields, its Pydantic model decodes to bytes for sig/eph_key
+            server_response_data = self._request(
+                "POST",
+                "/api/v1/vault/credentials", 
+                data=payload_dict, # Use the Pydantic validated dict
+                is_backend_request=True
+            )
+            # Server returns data matching server-side CredentialIssueResponse (which should be compatible with client_schemas.CredentialBase)
+            # Validate against client_schemas.CredentialBase
+            server_response_base = client_schemas.CredentialBase.model_validate(server_response_data)
 
-                response_data = self._request(
-                    "POST",
-                    "/api/v1/vault/credentials", # Match backend route
-                    data=payload,
-                    is_backend_request=True
-                )
+            # Construct final client response, adding back the ephemeral private key
+            issued_credential = client_schemas.CredentialResponse(
+                **server_response_base.model_dump(),
+                ephemeral_public_key_b64=ephemeral_public_key_b64, # Use the one we generated and sent
+                ephemeral_private_key_b64=ephemeral_private_key_b64_to_return
+            )
 
-                # Backend returns: agent_id, scope, credential_id, ephemeral_public_key, expires_at
-                # We need to add the ephemeral_private_key back for the caller
-                issued_credential = response_data # Assume response is the credential dict directly
-                issued_credential["ephemeral_private_key"] = ephemeral_private_key_b64
+            self.audit_logger.log_credential_issuance(
+                credential_id=issued_credential.credential_id,
+                agent_id=agent_id,
+                scope=scope, ttl=ttl, backend_issued=True
+            )
+            logger.info(f"[VaultClient Core] Successfully issued credential {issued_credential.credential_id} via backend.")
+            return issued_credential.model_dump() # Return as dict for CLI compatibility, or return Pydantic model
 
-                # Log success
-                audit_logger.log_credential_issuance(
-                    credential_id=issued_credential["credential_id"],
-                    agent_id=current_agent_id,
-                    scope=scope,
-                    ttl=ttl, # Log original TTL string
-                    backend_issued=True
-                )
-                logger.info(f"Successfully issued credential {issued_credential['credential_id']} via backend.")
-                return issued_credential
+        except (exceptions.ApiError, ValueError, requests.exceptions.RequestException) as e:
+            logger.error(f"[VaultClient Core] Backend issuance failed: {e}", exc_info=True)
+            self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=f"Backend error: {e}")
+            raise # Re-raise to be caught by CLI command
 
-            except (exceptions.ApiError, ValueError, requests.exceptions.RequestException) as e:
-                logger.warning(f"Backend issuance failed: {e}. Falling back to local issuance.", exc_info=True)
-                audit_logger.log_credential_issuance_failed(agent_id=current_agent_id, scope=scope, reason=f"Backend error: {e}")
-                # Fall through to local issuance
-        elif not local_only:
-             logger.warning("Backend not configured (URL or Token missing). Performing local issuance.")
+    # Helper for TTL parsing (internal to VaultClient)
+    def _parse_ttl_to_seconds(self, ttl_str: str) -> int:
+        ttl_pattern = re.compile(r'^(\d+)([smhdw])$')
+        match = ttl_pattern.match(ttl_str)
+        if not match:
+            raise ValueError(f"Invalid TTL format: '{ttl_str}'. Expected <number><unit> (e.g., 5m, 1h, 7d)")
+        value, unit_char = match.groups()
+        value_int = int(value)
+        delta = None
+        if unit_char == 's': delta = timedelta(seconds=value_int)
+        elif unit_char == 'm': delta = timedelta(minutes=value_int)
+        elif unit_char == 'h': delta = timedelta(hours=value_int)
+        elif unit_char == 'd': delta = timedelta(days=value_int)
+        elif unit_char == 'w': delta = timedelta(weeks=value_int)
+        if delta is None or value_int <=0: raise ValueError("Invalid or non-positive TTL value.")
+        return int(delta.total_seconds())
 
-
-        # --- Local Issuance Flow --- #
-        logger.info(f"Performing local credential issuance for agent {current_agent_id}")
-
-        # Calculate expiry timestamp (already have delta from TTL parsing)
-        now_ts = int(time.time())
-        expiry_ts = now_ts + ttl_seconds
-
-        # Create the final credential structure locally
-        credential = self._create_credential(
-            current_agent_id,
-            ephemeral_public_key_b64,
-            signature_b64,
-            scope,
-            expiry_ts,
-            captured_context
-        )
-
-        # Add ephemeral private key
-        credential["ephemeral_private_key"] = ephemeral_private_key_b64
-
-        # Log the local issuance event
-        audit_logger.log_credential_issuance(
-            credential_id=credential["credential_id"],
-            agent_id=current_agent_id,
-            scope=scope,
-            ttl=ttl, # Log original TTL string
-            backend_issued=False
-        )
-
-        return credential
-    
     def revoke_credential(self, credential_id: str, local_only: bool = False) -> bool:
         """
         Revoke a credential.
@@ -639,7 +528,7 @@ class VaultClient(base_client.BaseClient):
         logger.info(f"Initiating local rotation for agent identity: {agent_id}")
 
         # --- Local Rotation --- #
-        identity_file = self.identity_store_path / f"{agent_id}.json"
+        identity_file = IDENTITY_STORE_PATH / f"{agent_id}.json"
         if not identity_file.exists():
              audit_logger.log_credential_rotation_failed(agent_id=agent_id, credential_type=credential_type, reason="Local identity file not found")
              raise exceptions.VaultError(f"Local identity file not found for agent {agent_id}")
@@ -775,7 +664,7 @@ class VaultClient(base_client.BaseClient):
 
         # 3. Get Agent Identity Public Key
         try:
-            agent_identity, _ = self._get_agent_identity(agent_id)
+            agent_identity = identity_manager.load_identity(agent_id)
             identity_public_key = agent_identity["public_key"]
         except exceptions.VaultError as e:
             print(f"[Verification Failed] Could not load identity for agent {agent_id}: {e}", file=sys.stderr)

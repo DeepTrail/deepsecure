@@ -4,11 +4,13 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 import time # For created_at timestamp
 import logging # <--- Added import for logging
+import base64 # For validating public key from file if needed
 
 from .. import utils
-from ..core.identity_manager import identity_manager
+from ..core.identity_manager import identity_manager, KEYRING_SERVICE_NAME_AGENT_KEYS # Import constant for keyring direct use
 from ..core.agent_client import client as agent_api_client # Use the client singleton
 from ..exceptions import IdentityManagerError, ApiError # Assuming ApiError for agent_client
+import keyring # Import keyring for direct use if needed for set_password
 
 logger = logging.getLogger(__name__) # <--- Added logger instance
 
@@ -30,7 +32,7 @@ def register(
         None,
         "--public-key",
         "-pk",
-        help="Path to a file containing the agent's Ed25519 public key (base64-encoded raw bytes). If not provided, a new key pair will be generated and stored locally.",
+        help="Path to a file containing the agent's Ed25519 public key (base64-encoded raw bytes). If not provided, a new key pair will be generated.",
         exists=True, # typer will check if file exists if path is given
         file_okay=True,
         dir_okay=False,
@@ -40,16 +42,16 @@ def register(
 ):
     """Explicitly register a new agent with the DeepSecure credential service.
 
-    If a public key path is provided, that key will be registered with the backend.
-    Otherwise, a new Ed25519 key pair will be generated, its public key registered
-    with the backend, and the full key pair (including private key) stored locally.
+    If a public key path is provided, that key is registered. The private key is assumed
+    to be managed externally.
+    If no public key path is provided, a new Ed25519 key pair is generated. The private
+    key is stored in the system keyring, and public metadata (including the public key)
+    is stored in a local JSON file. The public key is then registered with the backend.
     The agent ID is always assigned by the backend service.
     """
     try:
         service_public_key_b64: Optional[str] = None
-        local_identity_created_here = False
-        # new_keys will be set if local_identity_created_here is True
-        new_keys: Optional[Dict[str, str]] = None 
+        generated_keys_locally: Optional[Dict[str,str]] = None # To hold new_keys if generated
 
         if public_key_path:
             try:
@@ -57,11 +59,13 @@ def register(
                 if not service_public_key_b64:
                     utils.print_error("Public key file is empty.")
                     raise typer.Exit(code=1)
-                try:
-                    import base64
-                    base64.b64decode(service_public_key_b64, validate=True)
-                except Exception:
-                    utils.print_error("Public key file content does not appear to be valid base64.")
+                try: # Basic validation of the provided public key
+                    pk_bytes = base64.b64decode(service_public_key_b64, validate=True)
+                    if len(pk_bytes) != 32:
+                        utils.print_error("Provided public key (decoded) must be 32 bytes.")
+                        raise typer.Exit(code=1)
+                except Exception as e:
+                    utils.print_error(f"Public key file content is not valid base64 or not 32 bytes once decoded: {e}")
                     raise typer.Exit(code=1)
                 utils.console.print(f"Using public key from file: {public_key_path}")
             except IOError as e:
@@ -69,16 +73,15 @@ def register(
                 raise typer.Exit(code=1)
         else:
             utils.console.print("No public key file provided. Generating new key pair locally...")
-            new_keys = identity_manager.generate_ed25519_keypair_raw_b64()
-            service_public_key_b64 = new_keys["public_key"]
-            local_identity_created_here = True
+            generated_keys_locally = identity_manager.generate_ed25519_keypair_raw_b64()
+            service_public_key_b64 = generated_keys_locally["public_key"]
             utils.console.print("New key pair generated.")
 
         if not service_public_key_b64:
-            utils.print_error("Failed to obtain a public key for registration.")
+            utils.print_error("Critical error: Failed to obtain a public key for registration.")
             raise typer.Exit(code=1)
 
-        utils.console.print(f"Registering public key with the backend service...")
+        utils.console.print("Registering public key with the backend service...")
         backend_response = agent_api_client.register_agent(
             public_key=service_public_key_b64,
             name=name,
@@ -87,35 +90,44 @@ def register(
         
         credservice_agent_id = backend_response.get("agent_id")
         if not credservice_agent_id:
-            utils.print_error("Backend did not return an agent ID.")
+            utils.print_error("Backend registration succeeded but did not return an agent ID.")
             raise typer.Exit(code=1)
 
         final_name = backend_response.get("name", name)
         final_description = backend_response.get("description", description)
-        fingerprint = backend_response.get("public_key_fingerprint")
+        # Backend's 'publicKey' is base64 of raw bytes, same as service_public_key_b64 we sent/generated.
+        # The fingerprint from backend might be different if it uses a different method.
+        # We'll use our CLI's method for consistency in display.
+        fingerprint = identity_manager.get_public_key_fingerprint(service_public_key_b64)
+        backend_created_at_str = backend_response.get("created_at") # This is likely an ISO string
+
+        local_keys_persisted = False
+        if generated_keys_locally:
+            try:
+                # Persist the generated identity: private key to keyring, public metadata to file,
+                # using the agent_id obtained from the backend.
+                identity_manager.persist_generated_identity(
+                    agent_id=credservice_agent_id,
+                    public_key_b64=generated_keys_locally["public_key"],
+                    private_key_b64=generated_keys_locally["private_key"],
+                    name=final_name,
+                    created_at_timestamp=int(time.time()) # Using local time for metadata file for now
+                )
+                local_keys_persisted = True
+                # Message about keyring storage is printed by IdentityManager
+            except Exception as e:
+                utils.print_error(f"Backend registration succeeded for {credservice_agent_id}, but failed to persist local keys/keyring entry: {e}")
+                # Continue to show backend success, but warn about local state.
         
-        if not fingerprint:
-             fingerprint = identity_manager.get_public_key_fingerprint(service_public_key_b64)
-
-        if local_identity_created_here and new_keys is not None:
-            local_identity_data = {
-                "id": credservice_agent_id, 
-                "name": final_name, 
-                "created_at": int(time.time()),
-                "public_key": new_keys["public_key"], 
-                "private_key": new_keys["private_key"]
-            }
-            identity_manager.save_identity(agent_id=credservice_agent_id, identity_data=local_identity_data)
-            utils.console.print(f"Local identity (including private key) stored for agent ID: {credservice_agent_id}")
-
         output_data = {
             "agent_id": credservice_agent_id,
             "name": final_name,
             "description": final_description,
             "public_key_fingerprint": fingerprint,
-            "message": backend_response.get("message", "Agent registered."),
-            "local_keys_stored": local_identity_created_here and new_keys is not None,
-            "local_identity_file": str(identity_manager.identity_store_path / f"{credservice_agent_id}.json") if (local_identity_created_here and new_keys is not None) else None
+            "backend_created_at": backend_created_at_str,
+            "local_keys_persisted_successfully": local_keys_persisted,
+            "local_identity_metadata_file": str(identity_manager.identity_store_path / f"{credservice_agent_id}.json") if generated_keys_locally else None,
+            "message": f"Agent '{final_name if final_name else credservice_agent_id}' registered with backend."
         }
 
         if output.lower() == "json":
@@ -129,19 +141,26 @@ def register(
                 utils.console.print(f"  Description: {output_data['description']}")
             if output_data['public_key_fingerprint']:
                 utils.console.print(f"  Public Key Fingerprint: {output_data['public_key_fingerprint']}")
-            if output_data['local_keys_stored'] and output_data['local_identity_file']:
-                utils.console.print(f"  [green]Local private key stored at: {output_data['local_identity_file']}[/green]")
+            if output_data['backend_created_at']:
+                utils.console.print(f"  Backend Registered At: {output_data['backend_created_at']}")
+            
+            if generated_keys_locally:
+                if local_keys_persisted:
+                    utils.console.print(f"  [green]Local private key stored in system keyring.[/green]")
+                    utils.console.print(f"  [green]Local public metadata at: {output_data['local_identity_metadata_file']}[/green]")
+                else:
+                    utils.console.print(f"  [bold red]Failed to store local private key in system keyring or save metadata file.[/bold red]")
             elif public_key_path:
                  utils.console.print(f"  [yellow]Note: Public key was provided from file. Private key is managed externally.[/yellow]")
 
     except IdentityManagerError as e:
         utils.print_error(f"Local identity management error: {e}")
         raise typer.Exit(code=1)
-    except ApiError as e:
-        utils.print_error(f"Backend API error during registration: {e}")
+    except ApiError as e: 
+        utils.print_error(f"Backend API error during registration: {e.message} (Status: {e.status_code}) Details: {e.error_details}")
         raise typer.Exit(code=1)
     except Exception as e:
-        utils.print_error(f"An unexpected error occurred during agent registration: {e}")
+        utils.print_error(f"An unexpected error occurred during agent registration: {type(e).__name__} - {e}")
         raise typer.Exit(code=1)
 
 # --- List Command ---
