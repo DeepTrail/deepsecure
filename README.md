@@ -1,45 +1,80 @@
 # DeepSecure CLI
 
-DeepSecure CLI is the command-line security control plane for developers and security engineers building secure AI agents, MCP servers, and applications.
+DeepSecure CLI is the command-line security control plane for developers and security engineers, enabling robust identity management and dynamic, signed credential issuance for AI agents and applications.
 
 [![PyPI version](https://badge.fury.io/py/deepsecure-cli.svg)](https://badge.fury.io/py/deepsecure-cli)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+<!-- TODO: Add build status badge e.g., [![Build Status](https://img.shields.io/github/actions/workflow/status/yourusername/deepsecure-cli/main.yml?branch=main)](https://github.com/yourusername/deepsecure-cli/actions) -->
+<!-- TODO: Add code coverage badge -->
 
-## Features
+## Why DeepSecure CLI?
 
-DeepSecure CLI offers a comprehensive suite of tools for securing AI agents, MCP servers, and applications:
+Building and deploying AI agents presents unique security challenges, especially around managing their identities and access to sensitive resources. DeepSecure CLI (in conjunction with its backend `credservice`) helps you:
 
-- **🤖 Agent Identity Management:** Explicitly register, list, describe, and manage the lifecycle of AI agents.
-- **🔐 Credential Management:** Issue, revoke, and rotate secure credentials
-- **🧠 Identity Risk & Behavior Monitoring:** Audit trails and risk scoring
-- **🛡️ Policy Enforcement:** Runtime policy application and sandboxing
-- **🔎 Credential Scanning:** Detect leaks in code, configs, or memory
-- **🧰 Server Hardening:** Secure MCP servers and deployment
-- **📊 Security Scorecard:** Visibility and inventory management
-- **🧩 IDE Integration:** Development workflow tools
+*   🛡️ **Enhance Agent Security:** Replace static, long-lived secrets with dynamic, short-lived, cryptographically signed credentials, significantly reducing the attack surface and the risk of credential leakage.
+*   🆔 **Establish Strong Agent Identities:** Explicitly register and manage each AI agent with a unique, verifiable Ed25519-based identity.
+*   🔑 **Secure Private Key Storage:** Agent long-term private keys are stored securely in your system's keyring (e.g., macOS Keychain, Freedesktop Secret Service, Windows Credential Manager), not in plaintext files.
+*   ⚙️ **Simplify Credential Management:** Easily issue and manage the lifecycle of credentials agents need to interact with your backend services (`credservice`), ensuring credentials are only valid for the necessary scope and duration.
+*   🔍 **Improve Auditability (Foundation):** By ensuring agents have distinct identities and use signed requests for credentials, you lay the groundwork for more comprehensive auditing of agent actions. (Full audit trail features are part of the roadmap).
+*   🧑‍💻 **Facilitate Secure Development:** Provides developers with command-line tools and underlying Python components to integrate security best practices directly into their AI agent development workflow.
+
+For a deeper dive into the project's vision, see the [Comprehensive Agent Security and Governance Platform Vision](docs/design/deepsecure-cli-comprehensive-agent-security-and-governance-platform.md) and [Secretless Identity & Authentication for AI Agents](docs/design/deepsecure-identity-authentication-for-ai-agents-architecture-design-guidance.md).
+
+## Key Features (v0.0.8)
+
+*   **Agent Identity Management (`deepsecure agent ...`):**
+    *   `register`: Explicitly register new AI agents with the `credservice` backend.
+        *   Automatically generates a local Ed25519 key pair if no public key is provided.
+        *   Securely stores the generated private key in the system keyring.
+        *   Saves public metadata (ID, name, public key) to a local JSON file.
+        *   Supports registration using an externally provided public key (private key managed by user).
+    *   `list`: List locally known identities and agents registered with `credservice`. Supports table, JSON, and text output.
+    *   `describe <agent_id>`: Show detailed information for a specific agent, combining backend data and local identity information (including fingerprint and keyring status).
+    *   `delete <agent_id>`: Deactivate agents (soft delete) in `credservice` and optionally purge local keys/metadata from file and keyring. Includes an option to attempt revocation of associated credentials (backend logic for actual revocation is on the roadmap).
+*   **Dynamic Credential Issuance (`deepsecure vault issue ...`):**
+    *   Issue short-lived, scoped credentials for registered agents.
+    *   Requires `--agent-id` for identifying the signing agent.
+    *   Performs client-side signing of credential requests using the agent's private key (retrieved from the system keyring).
+    *   Communicates with a `credservice` backend that performs mandatory signature verification.
+*   **Credential Lifecycle Management (`deepsecure vault ...`):**
+    *   `revoke`: Revoke active credentials via `credservice`.
+    *   `rotate`: Rotate an agent's long-term identity key (notifies `credservice` of the new public key).
+*   **Configuration Management (`deepsecure configure ...`):**
+    *   `set-url`, `get-url`: Manage the URL for the `credservice` backend.
+    *   `set-token`, `get-token`, `delete-token`: Securely store and manage the `credservice` API token in the system keyring.
+    *   `show`: Display current CLI configuration.
+*   **Core Python Components (for library use and CLI foundation):**
+    *   `IdentityManager`: Handles local agent identity creation, loading (with keyring for private keys), listing, and deletion.
+    *   `KeyManager`: Manages cryptographic key pair generation and signing operations.
+    *   `AgentClient`: Client for `deepsecure-cli` to interact with `credservice` agent management APIs.
+    *   `VaultClient`: Client for `deepsecure-cli` to interact with `credservice` vault APIs (handles client-side signing for credential issuance).
+    *   Custom Pydantic schemas and exceptions for robust API interaction.
 
 ## Installation
 
+### Prerequisites
+*   Python 3.9+
+*   `pip` (Python package installer)
+*   For secure storage of agent private keys and the `credservice` API token, a system keyring backend should be available:
+    *   **macOS:** Usually works out-of-the-box (uses Keychain).
+    *   **Windows:** Usually works out-of-the-box (uses Windows Credential Manager).
+    *   **Linux:** Often requires setup. Common backends include `SecretService` (requires a D-Bus service like `gnome-keyring-daemon` or `keepassxc`) or `KWallet`. You may need to install Python packages like `keyrings.alt` or `secretstorage`. `deepsecure-cli` will raise an error during operations requiring secure key storage if a backend is not found.
+
 ### From PyPI (Recommended)
-
-The easiest way to install DeepSecure CLI is from PyPI:
-
+The easiest way to install DeepSecure CLI (version 0.0.8) is from PyPI:
 ```bash
-pip install deepsecure-cli
+pip install deepsecure-cli==0.0.8
 ```
 
 To verify installation:
-
 ```bash
 deepsecure version
 ```
 
 ### From Source
-
-For development or to get the latest features:
-
+For development or to contribute:
 ```bash
-git clone https://github.com/deepsecure/deepsecure-cli
+git clone https://github.com/yourusername/deepsecure-cli # Replace with your actual repository URL
 cd deepsecure-cli
 pip install -e .
 
@@ -49,70 +84,244 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
-A typical workflow might involve registering an agent, then using its ID for other operations:
+Here's a quick example of how to get started with `deepsecure-cli`, assuming you have a running `credservice` backend.
 
-```bash
-# Show CLI version
-deepsecure version
+1.  **Configure the CLI to connect to your `credservice`:**
+    *(You only need to do this once, or when your `credservice` details change.)*
+    ```bash
+    # Set the URL of your credservice instance
+    deepsecure configure set-url http://localhost:8001 # Or your actual credservice URL
 
-# 1. Register a new AI agent (this will generate local keys if no public key is provided)
-deepsecure agent register --name "MyWorkflowAgent" --description "Agent for automated tasks"
-# (Note the agent-id output by this command, let's assume it's AGENT_ID_HERE)
+    # Securely store your credservice API token (you'll be prompted to paste it)
+    deepsecure configure set-token 
+    ```
 
-# 2. List registered agents to see your new agent
-deepsecure agent list
+2.  **Register a new AI agent:**
+    This command will generate a new Ed25519 key pair for your agent. The private key will be stored securely in your system's keyring, and the public key will be registered with `credservice`.
+    ```bash
+    deepsecure agent register --name "MyFirstAgent" --description "An agent for quick start testing"
+    ```
+    *Output will include an `Agent ID` (e.g., `agent-xxxx-xxxx`). Note this ID.*
+    ```
+    [IdentityManager] Private key for agent agent-xxxx... securely stored/updated in system keyring.
+    [IdentityManager] Saved identity metadata for agent-xxxx...
+    ✅ Success: Agent 'MyFirstAgent' registered with backend.
+      Agent ID: agent-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx 
+      ...
+      Local private key stored in system keyring.
+      Local public metadata at: /Users/youruser/.deepsecure/identities/agent-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.json
+    ```
 
-# 3. Issue a credential for the specific agent
-# Replace AGENT_ID_HERE with the actual ID from the register command
-deepsecure vault issue --agent-id "AGENT_ID_HERE" --scope="database:read" --ttl="10m"
+3.  **Issue a short-lived credential for your agent:**
+    Replace `<Your_Agent_ID_Here>` with the actual `Agent ID` from the previous step.
+    ```bash
+    deepsecure vault issue --scope "database:orders:read" --agent-id "<Your_Agent_ID_Here>" --ttl "5m"
+    ```
+    *Output will include:*
+    ```
+    ✅ Success: Credential issued successfully! (Backend)
 
-# 4. Apply a policy to the agent (example)
-# Replace AGENT_ID_HERE with the actual ID
-deepsecure policy apply --agent-id "AGENT_ID_HERE" --policy-file "./path/to/agent_policy.yaml"
+    Credential details:
+    ID: cred-yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+    Agent ID: <Your_Agent_ID_Here>
+    Scope: database:orders:read
+    Status: issued
+    Issued At: <timestamp>
+    Expires At: <timestamp>
+      Ephemeral Public Key (b64): <ephemeral_public_key_string>
+      Ephemeral Private Key (b64): <ephemeral_private_key_string>
+      Warning: Handle the ephemeral private key securely...
+    ```
+    Your agent can now use these ephemeral credential details to interact with target resources. The ephemeral private key is used for client-side cryptographic operations like establishing a secure channel.
 
-# 5. Get a risk score for the agent (example)
-# Replace AGENT_ID_HERE with the actual ID
-deepsecure risk score --agent-id "AGENT_ID_HERE"
+## Integrating with AI Agent Frameworks
+
+DeepSecure CLI's core functionality can be integrated into your AI agent's tools to dynamically fetch short-lived, signed credentials, enhancing security by eliminating static secrets.
+
+**Core Integration Pattern:**
+
+1.  **Agent Registration (Out-of-Band):** Before your AI agent runs, ensure it has a registered identity with `credservice` using `deepsecure agent register`. The agent's private key will be stored in the system keyring of the environment where the agent's code executes. The agent's code will need to know its `agent_id`.
+2.  **Dynamic Credential Issuance (In-Tool):** Within your agent's tool, when access to a protected resource is needed, use the `deepsecure` Python library components (`VaultClient` from `deepsecure.core.vault_client`) to call the `issue_credential` method.
+3.  **Use Ephemeral Credential:** The tool then uses the `credential_id` and `ephemeral_private_key` to interact with the target resource.
+
+### Conceptual Python Example (using `deepsecure.core.vault_client`)
+
+This snippet illustrates how an agent's tool might use the `VaultClient` (the same one used by the `deepsecure vault issue` CLI command) to fetch a credential.
+
+```python
+# Ensure deepsecure-cli is installed in your agent's Python environment
+# and configured to point to your credservice.
+
+# Note: For library usage, ensure your PYTHONPATH includes the deepsecure-cli project root
+# or that deepsecure-cli is installed as a package.
+from deepsecure.core.vault_client import client as deepsecure_vault_client
+from deepsecure.exceptions import DeepSecureError # Use the base error for broader catch
+
+# This AGENT_ID must correspond to an agent registered via `deepsecure agent register`
+# on the machine where this code is running, so its private key is in the keyring.
+AGENT_ID_FOR_TOOL = "agent-xxxxxxxx-your-registered-agent-id" 
+REQUIRED_SCOPE = "database:orders:read_sensitive"
+CREDENTIAL_TTL_STRING = "5m" # e.g., 5 minutes, as expected by CLI's VaultClient
+
+def access_secure_database(query: str) -> str:
+    try:
+        print(f"Requesting credential for agent '{AGENT_ID_FOR_TOOL}' with scope '{REQUIRED_SCOPE}'...")
+        
+        # The vault_client instance is a pre-configured singleton.
+        # Its issue_credential method handles loading the private key from keyring,
+        # signing, and calling the backend.
+        credential_data = deepsecure_vault_client.issue_credential(
+            agent_id=AGENT_ID_FOR_TOOL,
+            scope=REQUIRED_SCOPE,
+            ttl=CREDENTIAL_TTL_STRING 
+        )
+        
+        # credential_data is a dictionary matching the CLI's JSON output for `vault issue`
+        credential_id = credential_data.get("credential_id")
+        # ephemeral_private_key = credential_data.get("ephemeral_private_key_b64")
+        
+        print(f"Successfully obtained credential ID: {credential_id}")
+        
+        # Placeholder: Use the credential_id (and potentially ephemeral keys for a secure channel)
+        # to make the actual call to the database or internal API.
+        # e.g., db_response = db_client.query(query, auth_token=credential_id)
+        
+        return f"Database query executed with credential {credential_id}. Result: ... (mocked)"
+
+    except DeepSecureError as e: # Catch base DeepSecureError or more specific ones
+        print(f"DeepSecure Error obtaining credential: {e}")
+        return f"Failed to execute secure database query due to DeepSecure error."
+    except Exception as e:
+        print(f"An unexpected error occurred: {type(e).__name__} - {e}")
+        return "Failed to execute secure database query."
+
+# Example usage within an agent's tool:
+# result = access_secure_database("SELECT * FROM orders WHERE id=123;")
+# print(result)
 ```
+**Note:** For frameworks like AutoGen, CrewAI, LangGraph, Google ADK, etc., you would embed similar logic within their respective custom tool/function/node implementations. The key is to replace static secret usage with a call to obtain a dynamic credential via `deepsecure vault issue` (using `--agent-id`) or the Python client as shown.
 
-## Command Overview
+*(Links to detailed guides for each framework will be added in the `/docs/integrations/` directory as they are developed).*
 
-| Command Group | Description | Commands | Responsibilities |
-|---------------|-------------|----------|------------------|
-| agent     | Manage AI agent identities & lifecycle        | register, list, describe, delete| • Explicitly register agents with `credservice`<br>• Manage local agent identity keys<br>• List & describe agents<br>• Deactivate (soft delete) agents |
-| vault | Credential management | issue, revoke, rotate | • Integrate with secrets backend (e.g. Vault API)<br>• Enforce TTL, scoping, audit logging |
-| audit | Behavior monitoring | start, tail | • Launch or attach to audit service<br>• Stream & filter logs |
-| risk | Risk assessment | score, list | • Compute/lookup risk profiles<br>• Format output (color-coded) |
-| policy | Policy management | init, apply | • Generate policy templates<br>• Validate & push policies |
-| sandbox | Secure execution | run | • Spin up isolated execution environment<br>• Enforce policy at runtime |
-| scan | Credential scanning | local, live | • Static secret scanning<br>• In-memory/process scanning |
-| harden | Server hardening | server | • Wrap existing MCP server binaries<br>• Inject TLS/auth middleware |
-| deploy | Secure deployment | secure | • Build and push container images<br>• Auto-configure secure defaults |
-| scorecard | Security assessment | — | • Evaluate project/agent against checklist<br>• Export report |
-| inventory | Resource tracking | list | • Discover active AI services<br>• Highlight orphaned/serverless agents |
-| ide | Development tools | init, suggest | • Scaffold IDE config (Cursor/VSCode)<br>• Lint & suggest best practices |
+## Command Overview (v0.0.8)
 
-See [DeepSecure Documentation](https://deepsecure.dev/docs) for complete usage details.
+The `deepsecure-cli` provides the following core command groups and commands:
+
+| Command Group | Description                                       | Commands                                        | Status      | Core Responsibilities (Current v0.0.8)                                                                                                                                                              |
+|---------------|---------------------------------------------------|-------------------------------------------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `agent`       | Manage AI agent identities & lifecycle            | `register`, `list`, `describe`, `delete`          | Implemented | • Register new agents with `credservice`. <br> • Generate local Ed25519 key pairs, storing private keys in system keyring. <br> • Manage local metadata files. <br> • List & describe agents. <br> • Deactivate (soft delete) agents in `credservice` & purge local identity. |
+| `vault`       | Manage secure credentials for AI agents           | `issue`, `revoke`, `rotate`                     | Implemented | • Issue dynamic, short-lived credentials signed by a registered agent's private key (from keyring). <br> • Revoke active credentials via `credservice`. <br> • Rotate an agent's long-term identity key (notifies `credservice`). |
+| `configure`   | Configure `deepsecure-cli` local settings       | `set-url`, `get-url`, `set-token`, `get-token`, `delete-token`, `show` | Implemented | • Manage `credservice` URL. <br> • Securely store/retrieve API token in system keyring. <br> • Display current configuration.                 |
+| `version`     | Display CLI version                               |                                                 | Implemented | • Shows the installed version of `deepsecure-cli`.                                                                                                                                                       |
+
+Use `deepsecure <command-group> --help` or `deepsecure <command-group> <command> --help` for more details on specific commands and their options.
+
+## Security Considerations
+
+*   **`credservice` API Token:** The API token used to authenticate the CLI to the `credservice` backend (`DEEPSECURE_CREDSERVICE_API_TOKEN`) is a powerful secret.
+    *   **Recommendation:** Use `deepsecure configure set-token` to store it securely in your system's keyring for local development. Avoid placing it directly in shell profiles or plaintext files.
+    *   For headless environments (CI/CD, servers), use secure environment variable injection mechanisms.
+*   **Agent Private Keys:** When `deepsecure agent register` generates keys, the private key is stored in your system's keyring. Ensure your system keyring is adequately protected (e.g., by your user login password).
+*   **Ephemeral Private Keys:** The `deepsecure vault issue` command outputs an ephemeral private key. This key is highly sensitive and is intended for immediate use by the agent.
+    *   **Never log or store this ephemeral private key.**
+    *   It should be held in memory by the agent process only for the duration it's needed and then discarded.
+*   **Principle of Least Privilege:** Always use narrowly defined scopes when issuing credentials with `deepsecure vault issue --scope ...`.
+*   **Short TTLs:** Use the shortest practical Time-To-Live (`--ttl`) for ephemeral credentials.
+
+## Roadmap
+
+DeepSecure CLI aims to be a comprehensive security and governance platform for AI agents. Future development will focus on expanding capabilities in the following areas:
+
+*   **Advanced Audit & Risk Management:**
+    *   `deepsecure audit start, tail`: Centralized, queryable audit trails.
+    *   `deepsecure risk score, list`: Agent risk scoring and monitoring.
+*   **Granular Policy Enforcement:**
+    *   `deepsecure policy init, apply, get`: Define and apply runtime policies.
+*   **Secure Execution Environments:**
+    *   `deepsecure sandbox run`: Isolated environments for agent tasks.
+*   **Proactive Security Scanning & Hardening:**
+    *   `deepsecure scan local, live`: Credential scanning.
+    *   `deepsecure harden server`: Tools for securing MCP server deployments.
+*   **Deployment and Operational Tooling:**
+    *   `deepsecure deploy secure`: Package and deploy agents securely.
+*   **Visibility and Governance Dashboards:**
+    *   `deepsecure scorecard`: Security posture assessment.
+    *   `deepsecure inventory list`: Discovery of AI services and agent resources.
+*   **Enhanced Developer Experience:**
+    *   `deepsecure ide init, suggest`: Deeper IDE integration.
+    *   Mature, stable Python library facade (e.g., `from deepsecure import DeepSecureClient`).
+*   **Feature Enhancements:**
+    *   Full implementation of `--revoke-credentials` during `deepsecure agent delete` (including backend logic for revoking credentials).
+    *   `deepsecure agent update` command for modifying registered agent details.
+    *   Accurate `total` count for pagination in `deepsecure agent list` from backend.
+
+Contributions in these areas are welcome! Please see our [Contributing Guidelines](#contributing).
+
+## Contributing
+
+Contributions are highly welcome to make DeepSecure CLI a robust and comprehensive tool for the community!
+
+1.  **Found a Bug or Have a Feature Request?** Please [open an issue](https://github.com/yourusername/deepsecure-cli/issues) on our GitHub repository (replace `yourusername/deepsecure-cli` with the actual path).
+2.  **Want to Contribute Code?**
+    *   Please fork the repository and submit a pull request against the `main` or `dev` branch.
+    *   Ensure your contributions adhere to good coding practices and include tests where applicable.
+    *   For major changes, it's best to open an issue first to discuss your proposed approach.
+3.  **Development Setup:** See the [Development](#development) section below.
+
+*(A more detailed `CONTRIBUTING.md` file will be added to outline coding standards, testing procedures, and the contribution workflow.)*
 
 ## Development
 
+Setup your development environment:
 ```bash
-# Setup development environment
+# Clone the repository (if not already done)
+# git clone https://github.com/yourusername/deepsecure-cli.git
+# cd deepsecure-cli
+
+# Create and activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate # On Windows: .venv\Scripts\activate
+
+# Install in editable mode with development dependencies
 pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Build package
-python -m build
-
-# Check package
-twine check dist/*
-
-# Upload to PyPI (maintainers only)
-twine upload dist/*
 ```
+
+Run tests:
+```bash
+pytest
+```
+
+Build package:
+```bash
+python -m build
+```
+
+Check package:
+```bash
+twine check dist/*
+```
+### Backend Service (`credservice`) for End-to-End Testing
+
+Many `deepsecure-cli` commands (especially `agent` and `vault` groups) interact with a backend service component called `credservice`. For full end-to-end testing of these commands during development, you will need to run a local instance of the `credservice`. 
+
+Refer to the `credservice/README.md` (or its setup instructions within this repository) for details on how to configure and run it. Typically, this involves setting up a PostgreSQL database and running the FastAPI application using Uvicorn:
+```bash
+# Example (from within the credservice directory)
+# Ensure credservice/.env file is configured with DATABASE_URL and BACKEND_API_TOKEN
+cd credservice
+uvicorn app.main:app --reload --port 8001 
+```
+Ensure your `deepsecure-cli` (in a separate terminal) is configured to point to this local `credservice` instance:
+```bash
+deepsecure configure set-url http://localhost:8001
+deepsecure configure set-token # And enter the token matching credservice/.env
+```
+
+## Support
+
+*   **Questions & Issues:** Please [open an issue](https://github.com/yourusername/deepsecure-cli/issues) on our GitHub repository (replace `yourusername/deepsecure-cli` with the actual path).
+*   **(Future):** _Link to community chat (e.g., Discord, Slack) if one is set up._
 
 ## License
 
-Apache License 2.0 - See LICENSE file for details.
+Licensed under the [Apache License 2.0](LICENSE).
