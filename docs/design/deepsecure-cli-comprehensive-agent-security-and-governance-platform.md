@@ -1,10 +1,10 @@
-# DeepSecure CLI: Comprehensive Agent Security and Governance Platform Vision
+# DeepSecure: Comprehensive Agent Security and Governance Platform Vision
 
-This document outlines the broader vision for `deepsecure-cli` as a comprehensive platform for agent security and governance, detailing how current functionality helps and what future steps are needed.
+This document outlines the broader vision for DeepSecure as a comprehensive platform for agent security and governance, detailing how current functionality helps and what future steps are needed.
 
 ## Helping Developers Build More Secure AI Agents (Current Functionality & Vision)
 
-The current implementation, while focused on replacing static secrets with dynamic credentials, lays the groundwork for a more comprehensive agent security and governance platform.
+The current implementation (including the `deepsecure-cli` and `credservice`), while focused on replacing static secrets with dynamic credentials, lays the groundwork for a more comprehensive agent security and governance platform.
 
 ### How Current Functionality Helps
 
@@ -54,7 +54,7 @@ The current implementation, while focused on replacing static secrets with dynam
 
 **Core Concept for Testing & Demonstration:**
 
-The primary goal is to show how `deepsecure-cli` replaces static, long-lived secrets (API keys, DB passwords used directly by the agent/tool) with dynamic, short-lived, scoped credentials. The "test" involves integrating the `deepsecure vault issue` command (or its future library equivalent) into the agent's workflow right before it accesses a protected resource.
+The primary goal is to show how the `deepsecure-cli` tool (part of the DeepSecure project) replaces static, long-lived secrets (API keys, DB passwords used directly by the agent/tool) with dynamic, short-lived, scoped credentials. The "test" involves integrating the `deepsecure vault issue` command (or its future library equivalent from the `deepsecure` package) into the agent's workflow right before it accesses a protected resource.
 
 **Designing Demonstrations per Framework:**
 

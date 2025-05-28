@@ -1,4 +1,4 @@
-# DeepSecure CLI: Ephemeral Credentials Design
+# DeepSecure: Ephemeral Credentials Design
 
 ## Requirements for Ephemeral Keys
 

@@ -48,8 +48,8 @@ dev = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/deeptrail/deepsecure-cli"
-"Bug Tracker" = "https://github.com/deeptrail/deepsecure-cli/issues"
+"Homepage" = "https://github.com/DeepTrail/deepsecure"
+"Bug Tracker" = "https://github.com/DeepTrail/deepsecure/issues"
 "Documentation" = "https://deepsecure.dev/docs"
 
 [project.scripts]

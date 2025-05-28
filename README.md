@@ -2,7 +2,7 @@
 
 [![PyPI version](https://badge.fury.io/py/deepsecure-cli.svg)](https://badge.fury.io/py/deepsecure-cli)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-<!-- TODO: Add build status badge e.g., [![Build Status](https://img.shields.io/github/actions/workflow/status/yourusername/deepsecure-cli/main.yml?branch=main)](https://github.com/yourusername/deepsecure-cli/actions) -->
+<!-- TODO: Add build status badge e.g., [![Build Status](https://img.shields.io/github/actions/workflow/status/DeepTrail/deepsecure/main.yml?branch=main)](https://github.com/DeepTrail/deepsecure/actions) -->
 <!-- TODO: Add code coverage badge -->
 
 Secure your AI agent ecosystem with DeepSecure. DeepSecure offers tools and a framework for establishing strong agent identities, issuing dynamic, short-lived credentials based on verifiable signatures, and laying the foundation for comprehensive security governance. Move beyond risky static secrets and embrace a modern, identity-centric approach to protecting your AI agent operations.
@@ -74,8 +74,8 @@ deepsecure version
 ### From Source
 For development or to contribute:
 ```bash
-git clone https://github.com/yourusername/deepsecure-cli # Replace with your actual repository URL
-cd deepsecure-cli
+git clone https://github.com/DeepTrail/deepsecure.git
+cd deepsecure
 pip install -e .
 
 # With development dependencies
@@ -152,7 +152,7 @@ This snippet illustrates how an agent's tool might use the `VaultClient` (the sa
 # Ensure deepsecure-cli is installed in your agent's Python environment
 # and configured to point to your credservice.
 
-# Note: For library usage, ensure your PYTHONPATH includes the deepsecure-cli project root
+# Note: For library usage, ensure your PYTHONPATH includes the DeepSecure project root
 # or that deepsecure-cli is installed as a package.
 from deepsecure.core.vault_client import client as deepsecure_vault_client
 from deepsecure.exceptions import DeepSecureError # Use the base error for broader catch
@@ -261,7 +261,7 @@ Contributions in these areas are welcome! Please see our [Contributing Guideline
 
 Contributions are highly welcome to make DeepSecure CLI a robust and comprehensive tool for the community!
 
-1.  **Found a Bug or Have a Feature Request?** Please [open an issue](https://github.com/yourusername/deepsecure-cli/issues) on our GitHub repository (replace `yourusername/deepsecure-cli` with the actual path).
+1.  **Found a Bug or Have a Feature Request?** Please [open an issue](https://github.com/DeepTrail/deepsecure/issues) on our GitHub repository.
 2.  **Want to Contribute Code?**
     *   Please fork the repository and submit a pull request against the `main` or `dev` branch.
     *   Ensure your contributions adhere to good coding practices and include tests where applicable.
@@ -275,8 +275,8 @@ Contributions are highly welcome to make DeepSecure CLI a robust and comprehensi
 Setup your development environment:
 ```bash
 # Clone the repository (if not already done)
-# git clone https://github.com/yourusername/deepsecure-cli.git
-# cd deepsecure-cli
+# git clone https://github.com/DeepTrail/deepsecure.git
+# cd deepsecure
 
 # Create and activate a virtual environment
 python -m venv .venv
@@ -319,7 +319,7 @@ deepsecure configure set-token # And enter the token matching credservice/.env
 
 ## Support
 
-*   **Questions & Issues:** Please [open an issue](https://github.com/yourusername/deepsecure-cli/issues) on our GitHub repository (replace `yourusername/deepsecure-cli` with the actual path).
+*   **Questions & Issues:** Please [open an issue](https://github.com/DeepTrail/deepsecure/issues) on our GitHub repository.
 *   **(Future):** _Link to community chat (e.g., Discord, Slack) if one is set up._
 
 ## License
