@@ -1,11 +1,11 @@
 # DeepSecure CLI
 
-DeepSecure CLI is the command-line security control plane for developers and security engineers, enabling robust identity management and dynamic, signed credential issuance for AI agents and applications.
-
 [![PyPI version](https://badge.fury.io/py/deepsecure-cli.svg)](https://badge.fury.io/py/deepsecure-cli)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 <!-- TODO: Add build status badge e.g., [![Build Status](https://img.shields.io/github/actions/workflow/status/yourusername/deepsecure-cli/main.yml?branch=main)](https://github.com/yourusername/deepsecure-cli/actions) -->
 <!-- TODO: Add code coverage badge -->
+
+Secure your AI agent ecosystem with DeepSecure. DeepSecure offers tools and a framework for establishing strong agent identities, issuing dynamic, short-lived credentials based on verifiable signatures, and laying the foundation for comprehensive security governance. Move beyond risky static secrets and embrace a modern, identity-centric approach to protecting your AI agent operations.
 
 ## Why DeepSecure CLI?
 
