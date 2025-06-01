@@ -19,9 +19,12 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
 from typing import Annotated, Generator
 from sqlalchemy.orm import Session
+import logging # Import logging
 
 from app.core.config import settings
 from app.db.session import SessionLocal # Import the session factory
+
+logger = logging.getLogger(__name__) # Define logger for this module
 
 # --- Database Dependency ---
 
@@ -45,7 +48,6 @@ def verify_api_key(api_key_header: str = Depends(api_key_header_scheme)):
 
     Expects header format: "Authorization: Bearer <YOUR_STATIC_TOKEN>"
     """
-    # Check if the header is present and starts with "Bearer "
     if not api_key_header or not api_key_header.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -53,18 +55,21 @@ def verify_api_key(api_key_header: str = Depends(api_key_header_scheme)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Extract the token part
     token = api_key_header.split(" ")[1]
 
-    # Compare with the configured static token
+    # Temporary debug logging
+    # logger.info(f"[AUTH_DEBUG] Token received by credservice: '{token}'")
+    # logger.info(f"[AUTH_DEBUG] Token expected by credservice (settings.BACKEND_API_TOKEN): '{settings.BACKEND_API_TOKEN}'")
+
     if token != settings.BACKEND_API_TOKEN:
+        # logger.warning(f"[AUTH_DEBUG] Token mismatch: Received '{token}' vs Expected '{settings.BACKEND_API_TOKEN}'")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    # If token is valid, the dependency call succeeds (returns None implicitly)
-    return # Indicates success
+    # logger.info(f"[AUTH_DEBUG] Token validation successful for: '{token}'")
+    return
 
 # Type alias for the dependency
 APIKeyDep = Depends(verify_api_key)

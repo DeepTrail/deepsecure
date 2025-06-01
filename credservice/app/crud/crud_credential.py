@@ -141,6 +141,7 @@ class CRUDCredential(CRUDBase[CredentialModel, CredentialIssueRequest, Any]):
         if db_obj.revoked_at is None:
             logger.info(f"Revoking credential: {credential_id}")
             db_obj.revoked_at = datetime.now(timezone.utc)
+            db_obj.status = "revoked"
             db.add(db_obj)
             try:
                 db.commit()

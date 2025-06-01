@@ -13,6 +13,7 @@ class CredentialIssueRequest(BaseModel):
     agent_id: Optional[str] = None # Kept optional, VaultClient.issue() will ensure it's passed if signing
     ephemeral_public_key: str # Base64 encoded raw public key
     signature: str            # Base64 encoded signature - NOW REQUIRED
+    origin_context: Optional[Dict[str, Any]] = None # Added origin_context
 
 class AgentKeyRotateRequest(BaseModel):
     new_public_key: str # Base64 encoded
@@ -27,6 +28,7 @@ class CredentialBase(BaseModel):
     expires_at: datetime 
     issued_at: datetime
     status: str # e.g., "issued", "valid", "revoked", "expired"
+    origin_context: Optional[Dict[str, Any]] = None # Added origin_context
 
 class CredentialResponse(CredentialBase):
     # These are added/handled client-side but good to have in the model for the user of the client

@@ -6,6 +6,7 @@ import requests
 import logging
 
 from .. import exceptions
+from .. import __version__ # Import the version
 # from ..core.config import load_cli_config # Removed config import
 
 logger = logging.getLogger(__name__)
@@ -60,14 +61,12 @@ class BaseClient:
         Includes User-Agent and Content-Type. Adds Authorization header
         if the target URL matches the configured backend URL and a token exists.
         """
-        # TODO: Get version dynamically
         headers = {
-            "User-Agent": "DeepSecureCLI/0.0.2",
+            "User-Agent": f"DeepSecureCLI/{__version__}", # Use dynamic version
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
 
-        # Add Authorization header ONLY if talking to our configured backend
         token = self.backend_api_token
         backend_url = self.backend_url
         if token and backend_url and target_url.startswith(backend_url):

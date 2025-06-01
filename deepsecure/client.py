@@ -1,3 +1,5 @@
+"""High-level client services that wrap core client functionalities."""
+
 import requests
 from typing import Optional, Type, TypeVar, Dict, Any
 import base64
@@ -7,6 +9,9 @@ import uuid
 import re
 import logging
 import json
+import sys
+import os
+import socket
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives.asymmetric import ed25519 as ed25519_crypto
@@ -29,8 +34,18 @@ from deepsecure.core.agent_client import client as agent_api_client_for_setup
 from deepsecure.core.crypto.key_manager import key_manager as global_key_manager_instance
 from deepsecure.core.audit_logger import audit_logger
 from deepsecure.core import base_client
+from deepsecure.core import vault_client as core_vault_client_module
+from deepsecure.core import agent_client as core_agent_client_module
+
+# Commented out debug prints
+# print(f"DEBUG [deepsecure.client]: core_vault_client module from: {core_vault_client_module.__file__}", file=sys.stderr)
+# print(f"DEBUG [deepsecure.client]: core_agent_client module from: {core_agent_client_module.__file__}", file=sys.stderr)
+# print(f"<<<< DEBUG: client.py (this file) IS BEING LOADED AND EXECUTED (top level) >>>>", file=sys.stderr)
 
 logger = logging.getLogger(__name__)
+
+DEEPSECURE_DIR = core_vault_client_module.DEEPSECURE_DIR
+DEVICE_ID_FILE = core_vault_client_module.DEVICE_ID_FILE
 
 class EphemeralKeyPair:
     def __init__(self, public_key_b64: str, private_key_b64: str):
@@ -49,13 +64,52 @@ class VaultClient(base_client.BaseClient):
         self.api_prefix_vault_creds = "/api/v1/vault/credentials"
         self.api_prefix_agents = "/api/v1/agents"
         self.api_prefix_vault_agents_rotate = "/api/v1/vault/agents"
+        DEEPSECURE_DIR.mkdir(exist_ok=True)
+        # print(f"DEBUG [VaultClientService.__init__]: self._client is of type: {type(self)}", file=sys.stderr)
+        # print(f"DEBUG [VaultClientService.__init__]: self._client module: {getattr(self, '__module__', 'N/A')}", file=sys.stderr)
 
-    def issue(self, scope: str, agent_id: str, ttl: int = 300) -> client_main_schemas.CredentialResponse:
+    def _get_device_identifier(self) -> str:
+        if DEVICE_ID_FILE.exists():
+            try:
+                with open(DEVICE_ID_FILE, 'r') as f:
+                    device_id = f.read().strip()
+                    uuid.UUID(device_id)
+                    return device_id
+            except (IOError, ValueError):
+                pass 
+        device_id = str(uuid.uuid4())
+        try:
+            DEVICE_ID_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(DEVICE_ID_FILE, 'w') as f:
+                f.write(device_id)
+            DEVICE_ID_FILE.chmod(0o600)
+        except IOError as e:
+            print(f"[Warning] Failed to store persistent device ID: {e}", file=sys.stderr)
+            return device_id 
+        return device_id
+
+    def _capture_origin_context(self) -> Dict[str, Any]:
+        context = {
+            "hostname": socket.gethostname(),
+            "username": os.getlogin(),
+            "process_id": os.getpid(),
+            "timestamp": int(time.time())
+        }
+        try:
+            context["ip_address"] = socket.gethostbyname(socket.gethostname())
+        except socket.gaierror:
+            context["ip_address"] = "127.0.0.1"
+        context["device_id"] = self._get_device_identifier()
+        return context
+
+    def issue(self, scope: str, agent_id: str, ttl: int = 300, origin_binding: bool = True, passed_origin_context: Optional[Dict[str, Any]] = None) -> client_main_schemas.CredentialResponse:
+        # print("\nDEBUG [VaultClient in client.py]: TOP OF issue METHOD REACHED\n", file=sys.stderr)
         logger.info(f"[VaultClient(client.py).issue] Attempting for agent: {agent_id}, scope: {scope}, ttl: {ttl}s")
+        
         local_agent_identity = identity_manager.load_identity(agent_id)
         if not local_agent_identity: raise DeepSecureClientError(f"Local identity for {agent_id} not found.")
         agent_private_key_b64 = local_agent_identity.get("private_key")
-        if not agent_private_key_b64: raise DeepSecureClientError(f"Private key for {agent_id} not in loaded identity (keyring issue?).")
+        if not agent_private_key_b64: raise DeepSecureClientError(f"Private key for {agent_id} not in loaded identity.")
         
         ephemeral_keys = _generate_ephemeral_keys()
         ephemeral_public_key_to_send_b64 = ephemeral_keys.public_key_b64
@@ -72,12 +126,30 @@ class VaultClient(base_client.BaseClient):
             signature_b64_str = base64.b64encode(signature_bytes).decode('utf-8')
         except Exception as e: raise DeepSecureClientError(f"Failed to sign request for {agent_id}: {e}") from e
 
+        final_origin_context_for_payload: Optional[Dict[str, Any]] = None
+        if origin_binding:
+            final_origin_context_for_payload = passed_origin_context if passed_origin_context is not None else self._capture_origin_context()
+        
+        # Commenting out the specific debug block for origin_context and payload_dict
+        # print(f"DEBUG [VaultClient in client.py]: 1. final_origin_context_for_payload: {final_origin_context_for_payload}", file=sys.stderr)
+
         try:
             request_payload_model = client_main_schemas.CredentialIssueRequest(
-                scope=scope, ttl=ttl, agent_id=agent_id, 
-                ephemeral_public_key=ephemeral_public_key_to_send_b64, signature=signature_b64_str
+                scope=scope, 
+                ttl=ttl, 
+                agent_id=agent_id, 
+                ephemeral_public_key=ephemeral_public_key_to_send_b64, 
+                signature=signature_b64_str,
+                origin_context=final_origin_context_for_payload
             )
-            payload_dict = request_payload_model.model_dump(exclude_none=True)
+            # print(f"DEBUG [VaultClient in client.py]: 2. request_payload_model dir: {dir(request_payload_model)}", file=sys.stderr) # This was from a previous iteration, ensure it's out
+            # print(f"DEBUG [VaultClient in client.py]: 2.1. request_payload_model.origin_context: {getattr(request_payload_model, 'origin_context', 'MISSING_ATTRIBUTE')}", file=sys.stderr)
+            
+            payload_dict = request_payload_model.model_dump(exclude_unset=False, by_alias=False) # Changed from exclude_none=True
+            # print(f"DEBUG [VaultClient in client.py]: 3. payload_dict AFTER model_dump(exclude_unset=False): {payload_dict}", file=sys.stderr)
+            # print(f"DEBUG [VaultClient in client.py]: 3.1. origin_context in payload_dict: {payload_dict.get('origin_context', 'NOT_IN_PAYLOAD_DICT')}", file=sys.stderr)
+            # print(f"DEBUG [VaultClient in client.py]: 3.5. Full payload_dict: {payload_dict}", file=sys.stderr) # This was from previous iteration
+
         except PydanticValidationError as e: raise InvalidRequestError(f"Client-side payload error: {e}", error_details=e.errors()) from e
 
         server_response_dict = self._request(
@@ -139,15 +211,12 @@ class VaultClient(base_client.BaseClient):
         if not server_response_dict: raise DeepSecureClientError(f"No response data for revoke {credential_id}.")
         return client_main_schemas.RevocationResponse.model_validate(server_response_dict)
 
-client = VaultClient() # Create and export the singleton instance
+client = VaultClient()
 
 if __name__ == "__main__":
-    # Now use standard print for all outputs in this test script.
-    # Styling will be lost, but functionality can be tested.
-
     print("DeepSecure VaultClient Test Script with Self-Setup/Teardown")
     print("==========================================================")
-    print("[Warning] Ensure DEEPSECURE_CREDSERVICE_URL and DEEPSECURE_CREDSERVICE_API_TOKEN are set, or configured via CLI.") # Plain print
+    print("[Warning] Ensure DEEPSECURE_CREDSERVICE_URL and DEEPSECURE_CREDSERVICE_API_TOKEN are set, or configured via CLI.")
 
     test_run_uuid = str(uuid.uuid4())[:8]
     test_agent_name = f"ClientPyTestAgent-{test_run_uuid}"
@@ -181,41 +250,38 @@ if __name__ == "__main__":
         )
         print(f"[SETUP] Successfully registered and locally persisted agent: {test_agent_id_for_run} (Name: {test_agent_name})")
 
-        # --- Phase 3: Agent Operations (Part 1: Get Details) ---
         print(f"\n--- Testing: Agent Operations (Get Details for {test_agent_id_for_run}) ---")
         agent_details_initial = client.get_agent_details(agent_id=test_agent_id_for_run)
         print("Agent details retrieved successfully:") 
-        print(agent_details_initial.model_dump_json(indent=2)) # USE Pydantic's JSON dump
+        print(agent_details_initial.model_dump_json(indent=2))
 
-        # --- Phase 2: Core Vault Operations ---
         print(f"\n--- Testing: Core Vault Operations (for agent {test_agent_id_for_run}) ---")
         issued_cred = client.issue(scope="test:clientpy:lifecycle", agent_id=test_agent_id_for_run, ttl=120)
         print("Credential issued successfully:")
-        print(issued_cred.model_dump_json(indent=2)) # USE Pydantic's JSON dump
+        print(issued_cred.model_dump_json(indent=2))
         issued_credential_id = issued_cred.credential_id
 
         print(f"\nVerifying credential {issued_credential_id} (should be valid)...")
         verify_status_valid = client.verify(credential_id=issued_credential_id)
         print("Verification response (valid):")
-        print(verify_status_valid.model_dump_json(indent=2)) # USE Pydantic's JSON dump
+        print(verify_status_valid.model_dump_json(indent=2))
         if not verify_status_valid.is_valid or verify_status_valid.status != "valid": print("Assertion Failed: Valid cred")
         else: print("Assertion Passed: Credential is valid.")
 
         print(f"\nRevoking credential {issued_credential_id}...")
         revoke_status = client.revoke(credential_id=issued_credential_id)
         print("Revocation response:")
-        print(revoke_status.model_dump_json(indent=2)) # USE Pydantic's JSON dump
+        print(revoke_status.model_dump_json(indent=2))
         if revoke_status.status != "revoked": print("Assertion Failed: Revoke status")
         else: print("Assertion Passed: Credential revoked.")
 
         print(f"\nVerifying credential {issued_credential_id} (should be revoked)...")
         verify_status_revoked = client.verify(credential_id=issued_credential_id)
         print("Verification response (revoked):")
-        print(verify_status_revoked.model_dump_json(indent=2)) # USE Pydantic's JSON dump
+        print(verify_status_revoked.model_dump_json(indent=2))
         if verify_status_revoked.is_valid or verify_status_revoked.status != "revoked": print("Assertion Failed: Revoked cred")
         else: print("Assertion Passed: Credential is revoked.")
 
-        # --- Phase 3: Agent Operations (Part 2: Rotate Key & Verify) ---
         print(f"\n--- Testing: Agent Operations (Rotate Key for {test_agent_id_for_run}) ---")
         new_rotation_keys = identity_manager.generate_ed25519_keypair_raw_b64()
         new_public_key_for_rotation_b64 = new_rotation_keys["public_key"]
@@ -244,7 +310,7 @@ if __name__ == "__main__":
         print("Local identity store updated for rotated keys.")
         agent_details_after_rotation = client.get_agent_details(agent_id=test_agent_id_for_run)
         print("Agent details after rotation:")
-        print(agent_details_after_rotation.model_dump_json(indent=2)) # USE Pydantic's JSON dump
+        print(agent_details_after_rotation.model_dump_json(indent=2))
         if agent_details_after_rotation.public_key == new_public_key_for_rotation_b64: print("Assertion Passed: Agent PK rotated.")
         else: print("Assertion Failed: Agent PK not rotated.")
 

@@ -107,9 +107,12 @@ def issue(
             if credential.ephemeral_public_key_b64:
                 cli_utils.console.print(f"  Ephemeral Public Key (b64): {credential.ephemeral_public_key_b64}")
             
-            if credential.ephemeral_private_key_b64:
-                cli_utils.console.print(f"  [yellow]Ephemeral Private Key (b64): {credential.ephemeral_private_key_b64}[/yellow]")
-                cli_utils.console.print("  [bold red]Warning: Handle the ephemeral private key securely and ensure it's not logged or stored improperly.[/bold red]")
+            # DO NOT PRINT THE EPHEMERAL PRIVATE KEY TO THE CONSOLE
+            # if credential.ephemeral_private_key_b64:
+            #     cli_utils.console.print(f"  [yellow]Ephemeral Private Key (b64): {credential.ephemeral_private_key_b64}[/yellow]")
+            # Always print the warning if an ephemeral private key was part of the response, even if not shown
+            if hasattr(credential, 'ephemeral_private_key_b64') and credential.ephemeral_private_key_b64:
+                cli_utils.console.print("  [bold red]Warning: An ephemeral private key was generated. Handle it securely if obtained programmatically. It will not be displayed here.[/bold red]")
 
     except VaultError as e:
         cli_utils.print_error(f"Vault operation error: {str(e)}")
@@ -129,17 +132,18 @@ def issue(
 
 @app.command("revoke")
 def revoke(
-    id: str = typer.Option(..., help="ID of the credential to revoke. **Required**."),
+    credential_id: str = typer.Option(..., "--credential-id", "--id", help="ID of the credential to revoke. **Required**."),
 ):
     """Revoke a credential via the backend service."""
     try:
-        revoke_response_model = actual_vault_client.revoke(credential_id=id)
+        # The client method revoke() in deepsecure.client.VaultClientService expects credential_id
+        revoke_response_model = actual_vault_client.revoke(credential_id=credential_id)
         if revoke_response_model and revoke_response_model.status == "revoked":
-            cli_utils.print_success(f"Successfully revoked credential {id}. Status: {revoke_response_model.status}")
+            cli_utils.print_success(f"Successfully revoked credential {credential_id}. Status: {revoke_response_model.status}")
         elif revoke_response_model:
-            cli_utils.print_warning(f"Credential {id} revocation status: {revoke_response_model.status}")
+            cli_utils.print_warning(f"Credential {credential_id} revocation status: {revoke_response_model.status}")
         else:
-            cli_utils.print_error(f"Failed to revoke credential {id}. No response from client.", exit_code=1)
+            cli_utils.print_error(f"Failed to revoke credential {credential_id}. No response from client.", exit_code=1)
             
     except DeepSecureClientError as e:
         cli_utils.print_error(f"Client error during revocation: {str(e)}")

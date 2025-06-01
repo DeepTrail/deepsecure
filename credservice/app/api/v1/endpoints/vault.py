@@ -23,6 +23,7 @@ def issue_credential(
     db: deps.DbDep,
     _: Any = deps.APIKeyDep # Use APIKeyDep directly as it's already Depends(verify_api_key)
 ):
+    # logger.info(f"[VAULT_EP_DEBUG] Received credential_in.origin_context: {credential_in.origin_context}")
     logger.info(f"Attempting to issue credential for agent: {credential_in.agent_id}, scope: {credential_in.scope}")
 
     # 1. Fetch the agent's long-term public key
@@ -70,6 +71,7 @@ def issue_credential(
         # crud.credential.create now expects obj_in where .ephemeral_public_key and .signature are bytes
         credential = crud.credential.create(db=db, obj_in=credential_in)
         logger.info(f"Successfully created credential {credential.credential_id} for agent {credential_in.agent_id}")
+        # logger.info(f"[VAULT_EP_DEBUG] DB model credential.origin_context before return: {credential.origin_context}")
     except ValueError as ve: 
         logger.error(f"ValueError during credential creation in CRUD: {ve}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))

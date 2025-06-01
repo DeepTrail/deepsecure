@@ -24,6 +24,10 @@ from .. import exceptions
 from .identity_manager import identity_manager
 from ..core import schemas as client_schemas # Import client-side Pydantic schemas for request payload
 
+# print("\n<<<< DEBUG: vault_client.py IS BEING LOADED AND EXECUTED (top level) >>>>\n", file=sys.stderr)
+# # To be absolutely sure, you could uncomment the next line to see if it exits here:
+# # sys.exit("<<<< DEBUG: EXITING FROM VAULT_CLIENT.PY TOP LEVEL >>>>")
+
 logger = logging.getLogger(__name__) # Define logger
 
 # --- Constants for Local State --- #
@@ -292,6 +296,8 @@ class VaultClient(base_client.BaseClient):
                         local_only: bool = False # local_only flag might be deprecated if all issuance goes to backend
                         ) -> Dict[str, Any]: # Should return client_schemas.CredentialResponse eventually
         
+        print("\nDEBUG [VaultClient]: TOP OF issue_credential METHOD REACHED\n", file=sys.stderr)
+        
         logger.info(f"[VaultClient Core] Issuing credential for agent: {agent_id}, scope: {scope}, ttl: {ttl}")
         try:
             ttl_seconds = self._parse_ttl_to_seconds(ttl)
@@ -299,7 +305,6 @@ class VaultClient(base_client.BaseClient):
             self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=f"Invalid TTL: {e}")
             raise
 
-        # 1. Load agent identity using IdentityManager (gets keys from Keyring)
         agent_identity = identity_manager.load_identity(agent_id)
         if not agent_identity:
             err_msg = f"Local identity for agent_id '{agent_id}' not found by IdentityManager."
@@ -307,10 +312,8 @@ class VaultClient(base_client.BaseClient):
             self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=err_msg)
             raise exceptions.VaultError(err_msg)
 
-        # --- Add this log to verify the public key associated with the loaded private key ---
         loaded_public_key_b64 = agent_identity.get("public_key")
         logger.info(f"[VaultClient Core] Public key from loaded local identity for {agent_id}: {loaded_public_key_b64}")
-        # -------------------------------------------------------------------------------------
 
         agent_private_key_b64 = agent_identity.get("private_key")
         logger.info(f"[VaultClient Core] Private key loaded from IdentityManager for {agent_id} (first 10 chars): {str(agent_private_key_b64)[:10]}...")
@@ -320,15 +323,13 @@ class VaultClient(base_client.BaseClient):
             self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=err_msg)
             raise exceptions.VaultError(err_msg)
 
-        # 2. Generate ephemeral keypair (X25519)
         ephemeral_keys = self.key_manager.generate_ephemeral_keypair()
         ephemeral_public_key_b64 = ephemeral_keys["public_key"]
         ephemeral_private_key_b64_to_return = ephemeral_keys["private_key"]
 
-        # 3. Sign the ephemeral public key
-        signature_b64_str: str = "__dummy_signature_init_value__" # Initialize to ensure it's not None by an error in try block
+        signature_b64_str: str
         try:
-            logger.info(f"[VaultClient Core] Signing for {agent_id} using private key (type: {type(agent_private_key_b64)})")
+            logger.info(f"[VAULT_CLIENT_DEBUG] Signing for {agent_id} using private key.")
             raw_agent_private_key_bytes = base64.b64decode(agent_private_key_b64)
             if len(raw_agent_private_key_bytes) != 32:
                 raise ValueError("Agent private key (decoded) is not 32 bytes.")
@@ -339,40 +340,48 @@ class VaultClient(base_client.BaseClient):
                  raise ValueError("Ephemeral public key (decoded) is not 32 bytes for signing.")
 
             signature_bytes = agent_private_key_obj.sign(raw_ephemeral_public_key_bytes)
-            signature_b64_str = base64.b64encode(signature_bytes).decode('utf-8') # Actual assignment
-            logger.info(f"[VaultClient Core] Successfully signed ephemeral key for {agent_id}. Signature (first 10): {signature_b64_str[:10]}...")
+            signature_b64_str = base64.b64encode(signature_bytes).decode('utf-8')
+            logger.info(f"[VAULT_CLIENT_DEBUG] Successfully signed ephemeral key for {agent_id}. Signature (first 10): {signature_b64_str[:10]}...")
         except Exception as e:
             err_msg = f"Failed to sign ephemeral key for agent {agent_id}: {e}"
             logger.error(f"[VaultClient Core] {err_msg}", exc_info=True)
             self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=err_msg)
-            # This raise will stop execution before Pydantic validation if signing fails
             raise exceptions.VaultError(err_msg) from e 
 
-        # 4. Get origin context if needed
-        captured_context = {}
-        if origin_binding:
-            captured_context = origin_context if origin_context is not None else self._capture_origin_context()
+        # This is just to ensure the variable is present for the Pydantic model if the previous block was faulty in an edit.
+        if 'signature_b64_str' not in locals(): signature_b64_str = "dummy_signature_for_debug_if_missing"
+        if 'ephemeral_public_key_b64' not in locals(): ephemeral_public_key_b64 = "dummy_ephemeral_pk_for_debug"
+        if 'ttl_seconds' not in locals(): ttl_seconds = 300 # Dummy TTL
 
-        # 5. Prepare payload for backend using client-side Pydantic schema
+        final_origin_context: Optional[Dict[str, Any]] = None
+        if origin_binding:
+            final_origin_context = origin_context if origin_context is not None else self._capture_origin_context()
+        
+        print(f"DEBUG [VaultClient]: 1. final_origin_context to be used: {final_origin_context}", file=sys.stderr)
+
         try:
-            logger.info(f"[VaultClient Core] Preparing payload. Signature to use (first 10): {signature_b64_str[:10]}...")
-            request_payload = client_schemas.CredentialIssueRequest(
+            request_payload_model = client_schemas.CredentialIssueRequest(
                 agent_id=agent_id,
                 ephemeral_public_key=ephemeral_public_key_b64,
                 signature=signature_b64_str, 
-                ttl=ttl_seconds, # Ensure ttl_seconds is defined from _parse_ttl_to_seconds
+                ttl=ttl_seconds, 
                 scope=scope,
-                origin_context=captured_context if origin_binding else None
+                origin_context=final_origin_context
             )
-            payload_dict = request_payload.model_dump(exclude_none=True)
+            print(f"DEBUG [VaultClient]: 2. request_payload_model dir: {dir(request_payload_model)}", file=sys.stderr)
+            print(f"DEBUG [VaultClient]: 2.1. request_payload_model.origin_context: {getattr(request_payload_model, 'origin_context', 'MISSING_ATTRIBUTE')}", file=sys.stderr)
+            
+            # Try dumping with by_alias=False and exclude_unset=False to be very inclusive
+            payload_dict = request_payload_model.model_dump(exclude_unset=False, by_alias=False)
+            print(f"DEBUG [VaultClient]: 3. payload_dict AFTER model_dump(exclude_unset=False): {payload_dict}", file=sys.stderr)
+            print(f"DEBUG [VaultClient]: 3.1. origin_context in payload_dict: {payload_dict.get('origin_context', 'NOT_IN_PAYLOAD_DICT')}", file=sys.stderr)
+
         except PydanticValidationError as e: 
             err_msg = f"Client-side payload validation error (Pydantic): {e}"
             logger.error(f"[VaultClient Core] {err_msg}", exc_info=True)
             self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=err_msg)
-            # This is where the "Input should be a valid string" for signature would be caught
             raise exceptions.InvalidRequestError(err_msg, error_details=e.errors()) from e
 
-        # 6. Backend Issuance (No local_only fallback for this version of VaultClient)
         logger.info(f"[VaultClient Core] Attempting backend credential issuance for agent {agent_id}")
         try:
             # Server expects string fields, its Pydantic model decodes to bytes for sig/eph_key

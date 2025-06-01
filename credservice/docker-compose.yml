@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: deepsecure_credservice_db
+    environment:
+      POSTGRES_USER: deepsecure_user
+      POSTGRES_PASSWORD: deepsecure_password
+      POSTGRES_DB: credservicedb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432" # Expose on 5433 to avoid conflict if local pg is on 5432
+    networks:
+      - deepsecure_network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U deepsecure_user -d credservicedb" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  credservice:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deepsecure_credservice_app
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://deepsecure_user:deepsecure_password@db:5432/credservicedb
+      - SECRET_KEY=a-very-secret-key-for-dev-please-change-for-prod # Replace with a more secure key or manage via .env file
+      - ALGORITHM=HS256
+      - BACKEND_API_TOKEN=supersecrettoken123 # This is the token users will configure in deepsecure CLI for quickstart
+      # For alembic auto-detection of a synchronous driver if asyncpg is installed via main app deps:
+      - POSTGRES_DRIVER=psycopg2
+    networks:
+      - deepsecure_network
+    # Add a volume for the app code if you want hot-reloading during development (requires dev server like uvicorn --reload)
+    # volumes:
+    #   - .:/app # Mounts current directory to /app in container
+
+volumes:
+  postgres_data:
+
+
+networks:
+  deepsecure_network:
+    driver: bridge
