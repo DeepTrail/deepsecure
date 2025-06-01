@@ -62,37 +62,14 @@ def list_agents(
     """Retrieve a list of agents with pagination."""
     try:
         agents = crud.agent.get_multi(db, skip=skip, limit=limit)
-        # For total count, CRUDBase might need a count method, or we do it here
-        # total_count = db.query(crud.agent.model).count() # Simple count, can be slow on huge tables
-        # A more optimized count might be needed for production
-        # For now, let's assume crud.agent can provide it or we do a basic one.
-        # Placeholder for count - in a real app, get this efficiently.
-        # total_count = len(agents) if limit is effectively unbounded or no skip, otherwise it's complex.
-        # Let's assume get_multi could be extended or we add a count method to CRUDBase/CRUDAgent
-        # For this iteration, we will omit total count if not easily available or just count what's returned for simplicity.
-        # A better approach for total would be: total = crud.agent.get_count(db)
+        # logger.info(f"[ENDPOINT_DEBUG] crud.agent.get_multi returned: {len(agents)} agents. First one if any: {agents[0].__dict__ if agents else 'None'}")
         
-        # If crud.agent does not have get_count, we can simulate it for now or make total optional in AgentList
-        # For the purpose of this exercise, let's make total count based on the returned list if not fully implemented
-        # This is NOT a proper pagination total for all records.
-        # Ideally, AgentList schema might make total optional or crud layer would provide it.
-
-        # Let's refine `schemas.AgentList` to make total optional, or implement crud.agent.count()
-        # For now, let's use a dummy total for placeholder if needed by AgentList schema
-        # Assuming AgentList requires total:
-        # total_count = len(crud.agent.get_multi(db, limit=None)) # Inefficient for real app
-
-        # For now, let's assume total is not strictly required or we pass just the count of items in the current page.
-        # This means `AgentList` schema would need `total` to be Optional or a different approach taken.
-        # Let's assume for now we just return the current list and `AgentList` will be adapted if needed.
-
+        agent_list_response = schemas.AgentList(agents=agents, total=len(agents))
+        # logger.info(f"[ENDPOINT_DEBUG] AgentList Pydantic model created. Number of agents in model: {len(agent_list_response.agents)}")
+        return agent_list_response
     except Exception as e:
-        logger.error(f"Error listing agents: {e}", exc_info=True)
+        logger.error(f"Error listing agents in endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve agent list.")
-    
-    # If AgentList strictly needs total, this part needs a proper count from CRUD
-    # This is a simplified response for now. A real app needs a proper total count for pagination.
-    return schemas.AgentList(agents=agents, total=len(agents)) # Using len(agents) as a placeholder total
 
 @router.patch("/{agent_id}", response_model=schemas.Agent)
 def update_agent(
