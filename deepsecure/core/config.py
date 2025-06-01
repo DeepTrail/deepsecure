@@ -11,6 +11,7 @@ CONFIG_FILE_PATH = CONFIG_DIR / "config.toml"
 # Service names for keyring
 CREDSERVICE_URL_KEY = "credservice_url"
 API_TOKEN_KEY = "api_token"
+LOG_LEVEL_KEY = "cli_log_level"
 
 def ensure_config_dir_exists():
     """Ensures the configuration directory exists."""
@@ -41,6 +42,26 @@ def set_credservice_url(url: str):
     save_config(config)
     print(f"CredService URL set to: {url}")
 
+def get_cli_log_level() -> str:
+    """Gets the CLI log level from the config file, defaults to WARNING."""
+    config = load_config()
+    return config.get(LOG_LEVEL_KEY, "WARNING").upper()
+
+def set_cli_log_level(level: str):
+    """Sets the CLI log level in the config file."""
+    # Basic validation for common log levels
+    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    level_upper = level.upper()
+    if level_upper not in valid_levels:
+        print(f"Invalid log level '{level}'. Must be one of {valid_levels}. Level not changed.")
+        return
+    
+    config = load_config()
+    config[LOG_LEVEL_KEY] = level_upper
+    save_config(config)
+    print(f"CLI log level set to: {level_upper}")
+    print("Note: You may need to restart the CLI or current shell session for this to take full effect on all modules if they cache logging settings.")
+
 def get_api_token() -> Optional[str]:
     """Gets the API token from the keyring."""
     try:
@@ -70,10 +91,12 @@ def delete_api_token():
     try:
         keyring.delete_password(APP_NAME, API_TOKEN_KEY)
         print(f"API token deleted from keyring for service '{APP_NAME}' and username '{API_TOKEN_KEY}'.")
-    except keyring.errors.PasswordNotFoundError:
-        print("No API token found in keyring to delete.")
+    except keyring.errors.PasswordDeleteError:
+        print(f"No API token found in keyring for service '{APP_NAME}' and username '{API_TOKEN_KEY}', or it could not be deleted.")
     except keyring.errors.NoKeyringError:
         print("No keyring backend found. API token cannot be managed.")
+    except Exception as e:
+        print(f"An unexpected error occurred while deleting the API token: {e}")
 
 # For CLI usage, we might want to retrieve these combined or with fallbacks
 def get_effective_credservice_url() -> Optional[str]:

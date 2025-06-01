@@ -8,8 +8,8 @@ import base64 # For validating public key from file if needed
 from typer.core import TyperGroup
 
 from .. import utils
-from ..core import agent_client # For backend calls
-from ..core.identity_manager import identity_manager, KEYRING_SERVICE_NAME_AGENT_KEYS # Import constant for keyring direct use
+from ..core.agent_client import client as agent_service_client # Correct import name
+from ..core.identity_manager import identity_manager # Import constant for keyring direct use
 from ..exceptions import ApiError, IdentityManagerError # Corrected import
 from ..core import schemas as client_schemas # For request/response models if needed by CLI
 import keyring # Import keyring for direct use if needed for set_password
@@ -84,7 +84,7 @@ def register(
             raise typer.Exit(code=1)
 
         utils.console.print("Registering public key with the backend service...")
-        backend_response = agent_api_client.register_agent(
+        backend_response = agent_service_client.register_agent(
             public_key=service_public_key_b64,
             name=name,
             description=description
@@ -199,7 +199,7 @@ def list_agents( # Renamed from 'list' to avoid conflict with Python's list
 
         if fetch_remote:
             utils.console.print(f"Fetching agent identities from the backend service (skip={skip}, limit={limit})...")
-            remote_response = agent_api_client.list_agents(skip=skip, limit=limit)
+            remote_response = agent_service_client.list_agents(skip=skip, limit=limit)
             remote_identities_raw = remote_response.get("agents", [])
             total_remote = remote_response.get("total", len(remote_identities_raw))
 
@@ -225,7 +225,7 @@ def list_agents( # Renamed from 'list' to avoid conflict with Python's list
 
         if not agents_to_display:
             utils.console.print("No agents found.")
-            raise typer.Exit()
+            return # Explicit return to ensure no other code in the try block runs.
 
         # Simple de-duplication based on agent_id, preferring remote entries if IDs match
         # More sophisticated merging could be done if necessary
@@ -276,7 +276,10 @@ def list_agents( # Renamed from 'list' to avoid conflict with Python's list
         utils.print_error(f"Backend API error while listing agents: {e}")
         raise typer.Exit(code=1)
     except Exception as e:
-        utils.print_error(f"An unexpected error occurred: {e}")
+        # Print the type of exception and its arguments for better debugging
+        utils.print_error(f"An unexpected error occurred in list_agents: {type(e).__name__} - {str(e)}")
+        # import traceback # For more detailed trace if needed
+        # traceback.print_exc()
         raise typer.Exit(code=1)
 
 # --- Describe Command ---
@@ -292,7 +295,7 @@ def describe(
         # Attempt to fetch from backend first
         backend_details: Optional[Dict[str, Any]] = None
         try:
-            backend_details = agent_api_client.describe_agent(agent_id=agent_id)
+            backend_details = agent_service_client.describe_agent(agent_id=agent_id)
             if backend_details:
                  utils.console.print(f"Successfully fetched details for agent {agent_id} from backend.")
             else:
@@ -401,23 +404,32 @@ def delete(
     if local_identity_file.exists():
         local_keys_existed = True
 
-    if purge_local_keys and local_keys_existed and not force:
-        utils.console.print(f"[yellow]Warning: You are about to permanently delete local private keys for agent ID: {agent_id}.[/yellow]")
-        if not typer.confirm("Are you sure you want to proceed with deleting local keys? This action cannot be undone.", abort=True):
-            # typer.confirm with abort=True will exit here if user says no.
-            # If it somehow didn't, the logic below would proceed without purging.
-            pass 
-        else:
-            utils.console.print("Proceeding with local key deletion as confirmed by user.")
-    elif purge_local_keys and not local_keys_existed:
-        utils.console.print(f"No local keys found for agent ID {agent_id} to purge.")
-        # Set purge_local_keys to False so we don't try to act on it or report success/failure for it later
-        purge_local_keys = False 
+    # Unified confirmation prompt
+    if not force:
+        action_items = []
+        action_items.append("deactivate the agent on the backend (soft delete)")
+        
+        if purge_local_keys and local_keys_existed:
+            action_items.append("PERMANENTLY delete local private key and metadata file")
+        elif purge_local_keys and not local_keys_existed:
+            action_items.append("attempt to purge local keys/metadata (none found)")
+        elif not purge_local_keys and local_keys_existed:
+            action_items.append("leave local keys/metadata intact")
+        # If not purging and no local keys, no need to state anything extra about local keys
 
+        action_description = " AND ".join(action_items)
+        
+        utils.console.print(f"[yellow]Warning: You are about to {action_description} for agent ID: {agent_id}.[/yellow]")
+        if not typer.confirm("Are you sure you want to proceed? This action might be irreversible for local data.", abort=True):
+            # This path should not be reached due to abort=True
+            return # Defensive exit
+        else:
+            utils.console.print("Proceeding as confirmed by user.")
+    
     try:
         utils.console.print(f"Attempting to deactivate agent (soft delete) {agent_id} via backend service...")
         try:
-            deactivated_agent_data = agent_api_client.delete_agent(agent_id=agent_id)
+            deactivated_agent_data = agent_service_client.delete_agent(agent_id=agent_id)
             # If delete_agent succeeds, it returns the (now inactive) agent dict
             if deactivated_agent_data and deactivated_agent_data.get("status") == "inactive":
                 backend_deactivated_successfully = True

@@ -1,6 +1,8 @@
 '''Main CLI application entry point.'''
 import typer
 import importlib.metadata
+import sys
+from typing_extensions import Annotated
 
 from .commands import (
     vault,
@@ -8,24 +10,30 @@ from .commands import (
     configure
     # invoke removed
 )
+from . import __version__
+from .core.config import get_cli_log_level
+from .utils import setup_logging
 
-# Import other commands as they're implemented
-# from .commands import (
-#    audit,
-#    risk,
-#    policy,
-#    sandbox,
-#    scan,
-#    harden,
-#    deploy,
-#    scorecard,
-#    inventory,
-#    ide
-# )
+# Initialize logging as early as possible
+# Call setup_logging() with the configured level
+try:
+    current_log_level = get_cli_log_level()
+    setup_logging(current_log_level)
+except Exception as e:
+    # Fallback in case config or logging setup fails catastrophically before proper error handling
+    print(f"Initial logging setup failed: {e}. Using default logging.", file=sys.stderr)
+    setup_logging() # Attempt with default level
 
 app = typer.Typer(
     name="deepsecure",
-    help="DeepSecure CLI: Secure AI Development Control Plane."
+    help=(
+        "DeepSecure CLI: Tools for managing agent identities, secure credentials, "
+        "and security governance for AI agent ecosystems.\n\n"
+        "🛡️ Enhance Agent Security | 🆔 Strong Agent Identities | 🔑 Secure Key Storage"
+    ),
+    rich_markup_mode="markdown",
+    no_args_is_help=True,
+    add_completion=False # Optional: disable shell completion for simplicity if not needed
 )
 
 # Register command modules
@@ -46,14 +54,31 @@ app.add_typer(configure.app, name="configure")
 # app.add_typer(inventory.app, name="inventory")
 # app.add_typer(ide.app, name="ide")
 
-@app.command("version")
-def version():
-    """Show CLI version."""
-    try:
-        version = importlib.metadata.version("deepsecure")
-        print(f"DeepSecure CLI version: {version}")
-    except importlib.metadata.PackageNotFoundError:
-        print("DeepSecure CLI version: 0.0.2 (development)")
+# Version callback
+def version_callback(value: bool):
+    if value:
+        print(f"DeepSecure CLI Version: {__version__}")
+        raise typer.Exit()
+
+@app.callback()
+def main_callback(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-v",
+            callback=version_callback,
+            is_eager=True,
+            help="Show the version and exit.",
+        ),
+    ] = False,
+):
+    """
+    DeepSecure CLI: Secure your AI agent ecosystem.
+    """
+    # This callback runs before any command.
+    # You can add global flags or initial checks here if needed.
+    pass
 
 @app.command("login")
 def login(

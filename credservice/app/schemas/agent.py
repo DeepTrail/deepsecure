@@ -73,21 +73,26 @@ class Agent(AgentInDBBase): # Inherits fields from AgentInDBBase, including curr
     @field_validator('public_key_output', mode='before')
     @classmethod
     def populate_public_key_output(cls, v: Any, info: FieldValidationInfo) -> Optional[str]:
-        # v is the value of 'current_public_key' from the source (ORM model) 
-        # because of validation_alias="current_public_key"
+        # logger.info(f"[AGENT_SCHEMA_DEBUG] populate_public_key_output called. Value v: {v} (type: {type(v)})")
+        # logger.info(f"[AGENT_SCHEMA_DEBUG] info.data: {info.data}")
+
         if isinstance(v, bytes):
-            return base64.b64encode(v).decode('utf-8')
-        # If v is already a string (e.g. from a dict that was already processed), return as is or handle
-        # This case should be less common if source is always ORM or a dict with raw bytes for current_public_key
+            encoded_pk = base64.b64encode(v).decode('utf-8')
+            # logger.info(f"[AGENT_SCHEMA_DEBUG] v is bytes, encoded to: {encoded_pk}")
+            return encoded_pk
+        
         if v is None and info.data and isinstance(info.data.get('current_public_key'), bytes):
-            # Fallback if v is None but current_public_key is in the main data dict (less likely with validation_alias)
-            return base64.b64encode(info.data['current_public_key']).decode('utf-8')
+            # logger.info("[AGENT_SCHEMA_DEBUG] v is None, trying info.data.get('current_public_key')")
+            encoded_pk = base64.b64encode(info.data['current_public_key']).decode('utf-8')
+            # logger.info(f"[AGENT_SCHEMA_DEBUG] Fallback successful, encoded to: {encoded_pk}")
+            return encoded_pk
+        
         if isinstance(v, str):
-             # If it somehow comes as a string already (e.g. bad data or already converted), pass it through
-             # or raise error if expecting bytes that were aliased.
-             # For safety, if it's a string, assume it's already processed or invalid if bytes were expected.
-             logger.warning("populate_public_key_output received a string, expected bytes from aliased current_public_key. Value: ", v)        
-        return None # Or handle error if bytes were expected via alias and not received
+            # logger.warning(f"[AGENT_SCHEMA_DEBUG] populate_public_key_output received a string, expected bytes. Value: {v}")        
+            pass # Let it fall through to return None if not bytes and not handled above
+
+        # logger.error(f"[AGENT_SCHEMA_DEBUG] populate_public_key_output FALLING THROUGH, RETURNING NONE. v was: {v}")
+        return None
 
     model_config = {
         "from_attributes": True,

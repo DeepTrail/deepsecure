@@ -4,6 +4,7 @@ from typing_extensions import Annotated
 from typing import Optional
 
 from deepsecure.core import config
+from .. import utils as cli_utils
 
 app = typer.Typer(
     name="configure",
@@ -71,23 +72,27 @@ def delete_token_command():
     Deletes the DeepSecure CredService API token from the system keyring.
     """
     config.delete_api_token()
+    cli_utils.print_success(f"API token deleted from keyring for service '{config.APP_NAME}' and username '{config.API_TOKEN_KEY}'.")
+
+@app.command("set-log-level", help="Set the CLI logging level (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL).")
+def set_log_level_command(level: str = typer.Argument(..., help="The log level to set.")):
+    config.set_cli_log_level(level)
 
 @app.command("show", help="Show all current configuration settings.")
 def show_config():
-    """
-    Displays all current DeepSecure CLI configuration settings,
-    showing effective values (environment variables override local config/keyring).
-    """
+    """Displays current configuration settings including CredService URL and if an API token is stored."""
     url = config.get_effective_credservice_url()
-    token_present = bool(config.get_effective_api_token()) # Don't display token itself here
-
-    settings = {
+    token_stored = "Yes (keyring or env var)" if config.get_effective_api_token() else "No"
+    current_log_level = config.get_cli_log_level()
+    
+    settings_display = {
         "credservice_url": url if url else "Not set",
-        "api_token_stored": "Yes (keyring or env var)" if token_present else "No",
-        "config_file_path": str(config.CONFIG_FILE_PATH)
+        "api_token_stored": token_stored,
+        "cli_log_level": current_log_level,
+        "config_file_path": str(config.CONFIG_FILE_PATH) if config.CONFIG_FILE_PATH.exists() else "Not created yet"
     }
-    print_json(data=settings)
+    cli_utils.print_json(settings_display)
     if not url:
         print("\\n[yellow]Hint: Set CredService URL using 'deepsecure configure set-url <URL>'[/yellow]")
-    if not token_present:
+    if not token_stored:
         print("[yellow]Hint: Set API token using 'deepsecure configure set-token'[/yellow]") 
