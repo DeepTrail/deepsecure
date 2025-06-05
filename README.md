@@ -9,7 +9,8 @@
 <!-- TODO: Add Build Status Badge once CI is set up e.g. GitHub Actions -->
 <!-- [![Build Status](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/ci.yml) -->
 <!-- TODO: Update with your actual repo path for Discussions -->
-[![GitHub Discussions](https://img.shields.io/github/discussions/deepsecure/deepsecure)](https://github.com/DeepTrail/deepsecure/discussions)
+[![GitHub Discussions](https://img.shields.io/github/discussions/DeepTrail/deepsecure)](https://github.com/DeepTrail/deepsecure/discussions)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/DeepTrail/deepsecure/pulls)
 
 **DeepSecure provides effortless, simple and easy secure identity, credentials, and access management for AI agents and applications. Built for developers by developers—open-source and ready to protect your AI agents and AI-powered workflows.**
 
@@ -30,6 +31,8 @@ AI agents are revolutionizing productivity, but they also introduce new security
   - [✨ Key Features](#-key-features)
   - [📚 Table of Contents](#-table-of-contents)
   - [📖 Overview](#-overview)
+    - [What problems does DeepSecure solve?](#what-problems-does-deepsecure-solve)
+    - [Who is DeepSecure for?](#who-is-deepsecure-for)
   - [🏗️ Architecture](#️-architecture)
   - [🧠 Core Concepts](#-core-concepts)
   - [⚙️ Getting Started](#️-getting-started)
@@ -42,7 +45,6 @@ AI agents are revolutionizing productivity, but they also introduce new security
     - [4. Using the DeepSecure CLI (for Testing \& Debugging)](#4-using-the-deepsecure-cli-for-testing--debugging)
   - [🔌 Integrations](#-integrations)
     - [Integrating with AI Agent Frameworks](#integrating-with-ai-agent-frameworks)
-    - [Further Integration Opportunities](#further-integration-opportunities)
   - [💻 CLI Command Reference](#-cli-command-reference)
   - [🛠️ Running the Credential Service (Backend)](#️-running-the-credential-service-backend)
   - [🛣️ Roadmap \& Vision](#️-roadmap--vision)
@@ -59,14 +61,14 @@ The rise of sophisticated AI agents and AI-powered workflows brings incredible o
 
 Built for developers by developers, DeepSecure provides an effortless way to integrate secure identity, credential, and access management specifically tailored for your AI agents and applications. Our vision is to make "secure-by-default" AI development the standard, not an exception.
 
-**What problems does DeepSecure solve?**
+### What problems does DeepSecure solve?
 *   **Agent Identity & Authentication:** Establishes strong, verifiable identities for each AI agent, ensuring that only legitimate agents can perform actions and access resources.
 *   **Secure Credential Management:** Manages the lifecycle of short-lived, ephemeral credentials that agents use, minimizing the risk associated with static, long-lived secrets. It leverages OS-native keyrings for secure local storage of primary agent keys.
 *   **Simplified Security for Developers:** Abstracts away the complexities of identity and access management, allowing developers to focus on building AI capabilities with built-in security.
 *   **Dynamic Authorization:** (Roadmap) Will enable context-aware access control, allowing you to define precisely what an agent can do.
 *   **Comprehensive Audit Trails:** (Roadmap) Aims to provide clear logs of agent identity and access events for monitoring and compliance.
 
-**Who is DeepSecure for?**
+### Who is DeepSecure for?
 *   **Developers building AI agents:** Whether you're using frameworks like LangChain, CrewAI, Microsoft - Agent Squad, AWS - Strands Library, Google - Agent Developement Kit or custom solutions, DeepSecure helps you secure your agents without becoming a security expert.
 *   **Startups and teams integrating AI:** If you're leveraging AI to power new features or automate workflows, DeepSecure offers a straightforward path to embedding essential security.
 *   **Security-conscious organizations:** For those who want to proactively address the unique security risks posed by autonomous AI systems.
@@ -259,15 +261,6 @@ We aim for effortless integration with popular AI agent frameworks, promoting "s
 
 _This is an active area of development, and contributions or feedback are highly welcome!_
 
-### Further Integration Opportunities
-
-Looking ahead, we envision DeepSecure integrating with a broader range of enterprise systems to provide comprehensive security for AI agents:
-
-*   **Key Management Systems (KMS):** We plan to explore integrations with existing enterprise KMS solutions. This would allow organizations to leverage their established key management infrastructure for storing and managing the primary keys of AI agents, offering an alternative or complementary approach to the default OS keyring storage.
-*   **Identity Providers (IdP):** Future integrations could involve connecting DeepSecure with your existing Identity Providers (e.g., Okta, Azure AD, Keycloak). This could enable scenarios where agent identities are federated or managed in conjunction with existing enterprise identity systems, potentially streamlining user access management to agent-related resources or linking agent actions back to broader enterprise identity frameworks.
-
-We believe these future integrations will further enhance DeepSecure's capability to secure AI agents within complex enterprise environments. Your input on priorities and specific systems for these integrations is highly valued! Please share your needs and ideas on [GitHub Discussions](https://github.com/DeepTrail/deepsecure/discussions).
-
 ## 💻 CLI Command Reference
 
 The `deepsecure` CLI offers commands for agent and credential lifecycle management.
@@ -282,8 +275,6 @@ The `deepsecure` CLI offers commands for agent and credential lifecycle manageme
     *   `issue`: Request a new ephemeral credential for a registered agent.
     *   `revoke --credential-id <credential_id>`: Revoke an active ephemeral credential.
     *   `rotate <agent-id>`: Rotate the long-lived identity key for a specified agent.
-
-(Consider expanding this or linking to a separate, more detailed CLI documentation page if needed.)
 
 ## 🛠️ Running the Credential Service (Backend)
 
@@ -319,6 +310,7 @@ DeepSecure is on a mission to provide a holistic, developer-centric security pla
 *   **Developer Experience Enhancements:**
     *   **Management Dashboard:** Building a user-friendly interface for easier monitoring and management of agents and credentials.
     *   **Expanded Key Management Options:** Investigating support for Hardware Security Modules (HSMs) and other Key Management Services (KMS).
+*   **Enterprise System Integration:** Planning future integrations with enterprise Key Management Systems (KMS) and Identity Providers (IdP) for enhanced security and management in corporate environments.
 
 **This roadmap is driven by you!** Your insights, use cases, and contributions are invaluable in shaping the future of DeepSecure. Please share your thoughts, suggestions, and what you'd like to see:
 
