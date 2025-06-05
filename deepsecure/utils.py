@@ -32,9 +32,9 @@ console = Console(theme=custom_theme)
 # --- Logging Setup --- #
 DEFAULT_LOG_LEVEL = "WARNING" # Default if not configured
 
-# Store the original stdout/stderr for direct printing if needed
-_original_stdout = sys.stdout
-_original_stderr = sys.stderr
+# Store the original stdout/stderr for direct printing if needed - REMOVED
+# _original_stdout = sys.stdout
+# _original_stderr = sys.stderr
 
 def setup_logging(level_str: Optional[str] = None):
     """Configures logging for the CLI application using RichHandler.
@@ -121,21 +121,16 @@ def print_json(data: Union[Dict[str, Any], BaseModel], pretty: bool = True):
         if isinstance(data, BaseModel):
             json_str = data.model_dump_json(indent=indent)
         elif isinstance(data, dict):
-            # Ensure datetime objects in dicts are handled if any slip through somehow
-            # though Pydantic model_dump() should ideally handle this.
-            # A truly robust dict handler would iterate and convert datetimes.
-            # For now, assume if it's a dict, it's already JSON-serializable by json.dumps.
             json_str = json.dumps(data, indent=indent, sort_keys=True, ensure_ascii=False, default=str)
         else:
             json_str = json.dumps(data, indent=indent, sort_keys=True, ensure_ascii=False, default=str)
 
-        # Use original stdout for JSON to ensure it's clean for piping
-        # This bypasses Rich console styling.
-        _original_stdout.write(json_str + "\n")
-        _original_stdout.flush()
+        # Use current sys.stdout for JSON to ensure it's clean for piping
+        # This bypasses Rich console styling and ensures CliRunner captures it.
+        sys.stdout.write(json_str + "\n")
+        sys.stdout.flush()
     except (TypeError, ValueError) as e:
         error_console.print(f":x: [bold red]Error:[/] Failed to format data as JSON: {e}")
-        console.print(str(data))
 
 def generate_id(length: int = 8) -> str:
     """

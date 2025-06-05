@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2025-06-04
+
+### Changed
+- **Enhanced `README.md` for Improved Developer Experience:**
+    - Completely restructured `README.md` for significantly improved clarity, navigability, and developer engagement. The new structure includes dedicated sections for Key Features, a detailed Table of Contents, a compelling Overview, clear Getting Started instructions (Prerequisites, Installation), actionable Quick Start guides (for both SDK and CLI primary workflows), Core Concepts, a new Architecture section with a visual diagram, details on Integrations, a 💻 CLI Command Reference, instructions for Running the Credential Service (Backend), a project Roadmap & Vision, Contributing guidelines, and Community & Support information.
+    - The "Overview" section has been rewritten to clearly articulate the problems DeepSecure solves, its target audience, and its core value proposition, drawing content from `deepsecure-landing.md` and previous README versions.
+    - A new "Architecture" section featuring a Mermaid diagram was added to visually explain the interaction between DeepSecure components (CLI, SDK, OS Keyring, `credservice`, Database).
+    - The main title of the `README.md` was updated to "DeepSecure: Simple Security for Your AI Agents & AI-powered Workflows" for better impact.
+    - Prerequisites and backend setup instructions were clarified, especially regarding Docker Compose for the `credservice` and CLI configuration steps.
+    - Quick Start examples were refined for both Python SDK and CLI usage.
+    - The "CLI Command Reference" section header now includes a 💻 icon for better visual organization.
+
+## [0.1.4] - 2025-06-01
+
+### Added
+- Dockerized `credservice` backend with PostgreSQL for simplified developer setup and testing (via `docker-compose up`). See `README.md` and `credservice/` directory.
+- CLI command `deepsecure configure set-log-level` to allow users to set local CLI logging verbosity (DEBUG, INFO, WARNING, etc.). The `show` command now also displays the current log level.
+- More specific keyring service naming convention for agent private keys: `deepsecure_agent-<agent_id_prefix>_private_key`, improving clarity in system keychain utilities.
+
+### Changed
+- Updated `README.md` with instructions for Dockerized `credservice` and a new section explaining `deepsecure vault issue` behavior regarding ephemeral private keys (hidden in text output, available in JSON output).
+- `deepsecure agent delete` command now has a unified confirmation prompt before any action (backend deactivation or local key purge) if `--force` is not used, clearly stating what will happen.
+
+### Fixed
+- **`origin_context`** in credential issuance now correctly flows from CLI client, through the `credservice` backend, and is included in the final credential response.
+- **`deepsecure agent list`**: 
+    - Correctly handles and exits gracefully (exit code 0) with a "No agents found" message when the backend returns an empty list of agents, instead of throwing an error.
+    - Fixed underlying issues that led to the backend (incorrectly) reporting 0 agents when agents did exist in the database (related to ensuring correct database instance was queried and Pydantic serialization of agent list in `credservice`).
+- **User-Agent Header**: The `deepsecure` CLI now sends a dynamic User-Agent string including the correct package version (e.g., `DeepSecureCLI/0.1.4`).
+- **Credential Revocation**: `credservice` now correctly updates the `status` field to "revoked" in the database when a credential is revoked, in addition to setting `revoked_at`.
+- Resolved `ImportError` in `deepsecure commands/agent.py` related to `KEYRING_SERVICE_NAME_AGENT_KEYS` after refactoring keyring service name logic.
+- Corrected various `NameError` and `AttributeError` issues in `deepsecure` CLI commands related to client instance naming and method calls (e.g., `agent_client` vs `agent_service_client`, `agent_client.client.method_name`).
+- Addressed `AttributeError: module 'keyring.errors' has no attribute 'PasswordNotFoundError'` by updating exception handling in `deepsecure/core/config.py` to use `keyring.errors.PasswordDeleteError`.
+- Ensured Python environment and editable installs correctly pick up latest source code changes, resolving version inconsistencies and stale code execution.
+- Fixed various Python package dependencies and import errors in `credservice` for Docker build (e.g., `pydantic-settings`, `python-jose`, `passlib`).
+- Ensured Alembic migrations can find the `alembic/` script directory within the `credservice` Docker container.
+
 ## [0.1.3] - 2025-05-28
 
 ### Changed
