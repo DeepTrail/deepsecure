@@ -170,17 +170,17 @@ This workflow eliminates static secrets and custom auth boilerplate, provides a 
 ```mermaid
 graph TD
     subgraph "With DeepSecure: Clean & Scalable"
-        Agent1["Agent 1"] -->|1. Request Credential| DeepSecure
-        Agent2["Agent 2"] -->|1. Request Credential| DeepSecure
-        Agent3["Agent 3"] -->|1. Request Credential| DeepSecure
+        Agent1["Agent 1"] -->|"Request Credential"| DeepSecure
+        Agent2["Agent 2"] -->|"Request Credential"| DeepSecure
+        Agent3["Agent 3"] -->|"Request Credential"| DeepSecure
 
-        DeepSecure -- "2. Issue Short-Lived Token" --> Agent1
-        DeepSecure -- "2. Issue Short-Lived Token" --> Agent2
-        DeepSecure -- "2. Issue Short-Lived Token" --> Agent3
+        DeepSecure -->|"Issue Short-Lived Token"| Agent1
+        DeepSecure -->|"Issue Short-Lived Token"| Agent2
+        DeepSecure -->|"Issue Short-Lived Token"| Agent3
 
-        Agent1 -->|3. Access with Token| Database
-        Agent2 -->|3. Access with Token| BillingAPI
-        Agent3 -->|3. Access with Token| ThirdPartyAPI
+        Agent1 -->|"Access with Token"| Database
+        Agent2 -->|"Access with Token"| BillingAPI
+        Agent3 -->|"Access with Token"| ThirdPartyAPI
 
         style DeepSecure fill:#ccf,stroke:#333,stroke-width:2px
     end
