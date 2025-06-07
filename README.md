@@ -47,7 +47,8 @@ pip install deepsecure
 
 Get up and running with DeepSecure in minutes!
 
-The `deepsecure` package you just installed is the client. To use it, you also need its backend service running.   First, let's get the service running.
+The `deepsecure` package you just installed is the client. To use it, you also need its backend service running.   
+First, let's get the service running.
 
 ### 1. Start the `credservice` backend
 Before using the SDK or CLI to issue credentials, you need the backend service running.
