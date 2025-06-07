@@ -151,6 +151,8 @@ The common approach—hardcoding static `API_KEY`s in `.env` files and writing c
 
 This problem gets exponentially worse as you add more agents and more services. You end up with a complex, fragile web of hardcoded secrets and repetitive auth code that creates security nightmares and kills development velocity.
 
+Before DeepSecure, agent credentials are a tangled mess. Static, long-lived API keys are often shared between multiple agents and manually embedded in configurations. This is not scalable, creates a high risk of key leakage, and makes auditing nearly impossible.
+
 ```mermaid
 graph LR
     classDef agentNode fill:#2c3e50,stroke:#1a252f,color:#eee,stroke-width:2px,font-size:14px;
@@ -188,13 +190,15 @@ DeepSecure treats **identity as code**. Instead of managing keys, you manage age
 
 This workflow eliminates static secrets and custom auth boilerplate, provides a clear audit trail, and lets you build more complex, multi-agent systems securely from the start.
 
+With DeepSecure, the workflow is clean, scalable, and secure. Instead of static keys, agents request short-lived, single-purpose credentials from the DeepSecure service exactly when they need them. This enforces the principle of least privilege, eliminates static secret sprawl, and creates a clear, auditable trail.
+
 ```mermaid
 graph TD
     classDef deepsecureNode fill:#1f77b4,stroke:#0b3d91,color:#fff,stroke-width:3px,font-weight:bold,font-size:16px;
     classDef agentNode fill:#2c3e50,stroke:#1a252f,color:#eee,stroke-width:2px,font-size:14px;
     classDef apiNode fill:#34495e,stroke:#2a3b4d,color:#ddd,stroke-width:2px,font-size:14px;
 
-    subgraph "The DeepSecure Way: Clean & Scalable"
+    subgraph "With DeepSecure: Clean & Scalable"
         Agent1["Agent 1"]
         Agent2["Agent 2"]
         Agent3["Agent 3"]
