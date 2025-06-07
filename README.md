@@ -1,16 +1,13 @@
-# DeepSecure: Effortless Identity & Access for AI Agents
+<div style="display: flex; align-items: center; gap: 20px;">
+  <img src="assets/deeptrail_logo.png" alt="DeepSecure Logo" width="80">
+  <h1 style="margin: 0;">DeepSecure: Effortless Identity & Access for AI Agents</h1>
+</div>
 
-<p align="center"><img src="assets/deeptrail_logo.png" width="200"></p>
+<br/>
 
-[![GitHub stars](https://img.shields.io/github/stars/DeepTrail/deepsecure?style=social)](https://github.com/DeepTrail/deepsecure/stargazers)
-[![PyPI version](https://badge.fury.io/py/deepsecure.svg)](https://badge.fury.io/py/deepsecure)
-[![Python Version](https://img.shields.io/pypi/pyversions/deepsecure)](https://pypi.org/project/deepsecure/)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-<!-- TODO: Add Build Status Badge once CI is set up e.g. GitHub Actions -->
-<!-- [![Build Status](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/ci.yml) -->
-<!-- TODO: Update with your actual repo path for Discussions -->
-[![GitHub Discussions](https://img.shields.io/github/discussions/DeepTrail/deepsecure)](https://github.com/DeepTrail/deepsecure/discussions)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/DeepTrail/deepsecure/pulls)
+[![PyPI Downloads](https://static.pepy.tech/badge/deepsecure)](https://pepy.tech/projects/deepsecure) [![PyPI version](https://img.shields.io/pypi/v/deepsecure?style=flat-square)](https://pypi.org/project/deepsecure/) [![Python Version](https://img.shields.io/pypi/pyversions/deepsecure?style=flat-square)](https://pypi.org/project/deepsecure/) [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
+
+[![GitHub stars](https://img.shields.io/github/stars/DeepTrail/deepsecure?style=flat-square)](https://github.com/DeepTrail/deepsecure/stargazers) [![GitHub Discussions](https://img.shields.io/github/discussions/DeepTrail/deepsecure?style=flat-square)](https://github.com/DeepTrail/deepsecure/discussions) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/DeepTrail/deepsecure/pulls) [![Follow on X](https://img.shields.io/badge/Follow-@0xdeeptrail-blue?style=flat-square&logo=x)](https://x.com/0xdeeptrail) [![Follow on LinkedIn](https://img.shields.io/badge/Follow-DeepTrail-blue?style=flat-square&logo=linkedin)](https://www.linkedin.com/company/deeptrail)
 
 Stop wrestling with auth & scattered API keys. DeepSecure provides Identity-as-Code for your AI agents, giving them unique identity to fetch their own ephemeral credentials programmatically.
 
