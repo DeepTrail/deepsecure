@@ -136,7 +136,11 @@ Your agent can now use these ephemeral credential details to interact with targe
 
 ## 🤔 Why DeepSecure? (Stop Wrestling with Auth & Secrets)
 
-As you build AI agents, you'll quickly run into a familiar, two-part problem: how do you give your agents access to other APIs, and how do you prove *which* agent is making the request? The common approach—hardcoding static `API_KEY`s in `.env` files and writing custom auth logic for every interaction—is simple at first, but it quickly becomes a fragile, insecure mess that slows you down.
+As you build AI agents, you'll quickly run into a familiar, two-part problem:  
+1. How do you give your agents access to external APIs securely?  
+2. How do you verify *which* agent is making each request?  
+
+The common approach—hardcoding static `API_KEY`s in `.env` files and writing custom auth logic for every interaction—is simple at first, but it quickly becomes a fragile, insecure mess that slows you down.
 
 ### The Problem: The Mess of Static Keys & Manual Auth
 
