@@ -14,7 +14,7 @@
 
 Stop wrestling with auth & scattered API keys. DeepSecure provides Identity-as-Code for your AI agents, giving them unique identity to fetch their own ephemeral credentials programmatically.
 
-🚀 Build AI Agents Faster. Security? Solved.
+🚀 Build AI Agents Faster. Security? Solved.  
 You're building rapidly and deploying quickly—but scattered API keys and messy auth logic slow you down.
 Why build your agent only for prototype — when you can secure it from prototype to production?
 
@@ -47,7 +47,7 @@ pip install deepsecure
 
 Get up and running with DeepSecure in minutes!
 
-The `deepsecure` package you just installed is the client. To use it, you also need its backend service running. First, let's get the service running.
+The `deepsecure` package you just installed is the client. To use it, you also need its backend service running.   First, let's get the service running.
 
 ### 1. Start the `credservice` backend
 Before using the SDK or CLI to issue credentials, you need the backend service running.
@@ -304,7 +304,7 @@ Remember to [configure the CLI to connect to this service](#2-configure-the-cli-
 
 DeepSecure is on a mission to provide a holistic, developer-centric security platform for the AI agent ecosystem. We're excited about the journey ahead and believe that community collaboration is key to building impactful solutions.
 
-**We're actively seeking your feedback and contributions on our evolving roadmap!** Here are some key areas we're exploring or currently working on:
+**We're actively seeking your feedback and contributions on our evolving roadmap!**   Here are some key areas we're exploring or currently working on:
 
 *   **Seamless Framework Integrations:** Deepening our support for popular AI agent frameworks (like LangChain, CrewAI, Microsoft - Agent Squad, AWS - Strands Library, Google - Agent Developement Kit ) to make secure development even more intuitive.
 *   **Interoperability with Agentic Protocols:** Exploring integrations with emerging AI agent communication standards (e.g., MCP, A2A) to ensure DeepSecure works well within the broader agent ecosystem.
