@@ -1,8 +1,8 @@
 # DeepSecure: Effortless Identity & Access for AI Agents
 
-<!-- Optional: Add a project logo here -->
-<!-- e.g., <p align="center"><img src="docs/images/deepsecure_logo.png" width="200"></p> -->
+<p align="center"><img src="assets/deeptrail_logo.png" width="200"></p>
 
+[![GitHub stars](https://img.shields.io/github/stars/DeepTrail/deepsecure?style=social)](https://github.com/DeepTrail/deepsecure/stargazers)
 [![PyPI version](https://badge.fury.io/py/deepsecure.svg)](https://badge.fury.io/py/deepsecure)
 [![Python Version](https://img.shields.io/pypi/pyversions/deepsecure)](https://pypi.org/project/deepsecure/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -15,15 +15,14 @@
 Stop wrestling with auth & scattered API keys. DeepSecure provides Identity-as-Code for your AI agents, giving them unique identity to fetch their own ephemeral credentials programmatically.
 
 🚀 Build AI Agents Faster. Security? Solved.
-You're building rapidly, deploying quickly—but scattered API keys and messy auth logic slow you down. DeepSecure instantly provides your AI agents with secure identities and short-lived credentials—zero friction, zero expertise needed.
+You're building rapidly and deploying quickly—but scattered API keys and messy auth logic slow you down.
+Why build your agent only for prototype — when you can secure it from prototype to production?
 
-✅ Replaces API key chaos & auth boilerplate with secure, programmatic access.
+DeepSecure instantly provides your AI agents with secure identities and short-lived credentials — zero friction, zero expertise needed.
 
-✅ Instant setup—be secure in minutes.
-
+✅ Replaces API key chaos & auth boilerplate with secure, programmatic access.  
+✅ Instant setup—be secure in minutes.  
 ✅ Integrates instantly—perfect for LangChain, CrewAI, and more.
-
-✨ Star us! It's the easiest way to say thanks and help others discover effortless security.
 
 ## ⚙️ Getting Started
 
@@ -75,12 +74,15 @@ from deepsecure import register_agent, issue_credential_ext_async
 from deepsecure.core.types import CredentialRequestContext, CredentialRequestExt
 
 async def main():
-    # Register your agent. This creates a keypair; private key stored in OS keyring.
-    agent_id = "my_sdk_agent_001" 
-    agent_identity = await register_agent(agent_id=agent_id, auto_generate_keys=True)
-    print(f"Agent registered: {agent_identity.id}. Private key in OS keyring.")
+    # Register your agent with a unique, human-readable name.
+    # This creates a keypair; the private key is stored in your OS keyring.
+    agent_name = "my_billing_agent_001" 
+    agent_identity = await register_agent(name=agent_name, auto_generate_keys=True)
+    print(f"Agent registered: {agent_identity.id}. Name: '{agent_name}'.")
 
-    # Ensure your DeepSecure Credential Service (credservice) is running and CLI is configured.
+    # To request a credential, you provide a structured context.
+    # This is the SDK equivalent of the CLI's simple '--scope' flag,
+    # but allows for richer, more fine-grained authorization details.
     try:
         context = CredentialRequestContext(
             resource_id="billing_api_v1",
@@ -89,7 +91,7 @@ async def main():
         )
         request_ext = CredentialRequestExt(context=context)
 
-        # Issue an ephemeral credential
+        # Issue an ephemeral credential for the agent by its registered ID
         cred_response = await issue_credential_ext_async(
             agent_id=agent_identity.id,
             request=request_ext,
@@ -105,7 +107,7 @@ async def main():
 
     except Exception as e:
         print(f"\nError issuing credential: {e}")
-        print("  Ensure credservice is running & CLI/SDK is configured (URL, client ID/secret).")
+        print("  Ensure credservice is running & CLI/SDK is configured (URL, token).")
 ```
 **Note:** The Python SDK manages agent identity keys. For ephemeral credentials, the SDK returns the full credential (including the private key), which your application code must handle securely (ideally, only in memory for its lifetime).
 
@@ -128,6 +130,8 @@ Replace `<Your_Agent_ID_Here>` with the actual `Agent ID` from the previous step
 deepsecure vault issue --scope "database:orders:read" --agent-id "<Your_Agent_ID_Here>" --ttl "5m"
 ```
 Your agent can now use these ephemeral credential details to interact with target resources.
+
+**A Note on Scope vs. Context:** The CLI's `--scope` flag (e.g., `"database:orders:read"`) is a simple string format for defining permissions. The SDK's `CredentialRequestContext` provides a more structured way to pass richer authorization data, like `resource_id`, `action`, and `origin_context`. Both are used by the backend to make authorization decisions.
 
 ## 🤔 Why DeepSecure? (Stop Wrestling with Auth & Secrets)
 
@@ -169,7 +173,7 @@ This workflow eliminates static secrets and custom auth boilerplate, provides a 
 
 ```mermaid
 graph TD
-    subgraph "With DeepSecure: Clean & Scalable"
+    subgraph "The DeepSecure Way: Clean & Scalable"
         Agent1["Agent 1"] -->|"Request Credential"| DeepSecure
         Agent2["Agent 2"] -->|"Request Credential"| DeepSecure
         Agent3["Agent 3"] -->|"Request Credential"| DeepSecure
@@ -205,8 +209,14 @@ DeepSecure is designed to work seamlessly within your existing AI development ec
 
 We aim for effortless integration with popular AI agent frameworks, promoting "secure-by-default" development practices.
 
-*   **Supported Frameworks (e.g., LangChain, CrewAI, Microsoft Agent Squad, AWS Strands, Google ADK):** We are actively developing `deepsecure.init(agent_framework="<framework_name>")` helper functions.
-    *   These functions will simplify agent registration, secure credential issuance, and overall identity management within these frameworks, allowing you to focus on your agent's core logic.
+*   **Agentic Frameworks (e.g., LangChain, CrewAI, Microsoft Agent Squad, AWS Strands, Google ADK):** We are actively developing `deepsecure.init()` helper functions to make integration a one-line operation. Our vision is to make securing your agents as simple as:
+
+    ```python
+    import deepsecure
+    deepsecure.init(agent_framework="LangChain")
+    # Your agents are now instantly secure—it's that easy!
+    ```
+
 *   Check the `deepsecure/integrations` directory in our repository and join the conversation on [GitHub Discussions](https://github.com/DeepTrail/deepsecure/discussions) for the latest status, to request support for new frameworks, or to share your own integration experiences.
 
 _This is an active area of development, and contributions or feedback are highly welcome!_
@@ -317,8 +327,8 @@ Let's build a more secure AI future, together!
 DeepSecure is open source, and your contributions are vital! Help us build the future of AI agent security.
 
 *   🌟 **Star our GitHub Repository!**
-*   🐛 **Report Bugs or Feature Requests:** Use [GitHub Issues](https://github.com/DeepTrail/deepsecure/issues). <!-- TODO: Update link -->
-*   💡 **Suggest Features:** Share ideas on [GitHub Issues](https://github.com/DeepTrail/deepsecure/issues) or [GitHub Discussions](https://github.com/DeepTrail/deepsecure/discussions). <!-- TODO: Update link -->
+*   🐛 **Report Bugs or Feature Requests:** Use [GitHub Issues](https://github.com/DeepTrail/deepsecure/issues).
+*   💡 **Suggest Features:** Share ideas on [GitHub Issues](https://github.com/DeepTrail/deepsecure/issues) or [GitHub Discussions](https://github.com/DeepTrail/deepsecure/discussions).
 *   📝 **Improve Documentation:** Help us make our guides clearer.
 *   💻 **Write Code:** Tackle bugs, add features, improve integrations.
 
@@ -326,8 +336,8 @@ For details on how to set up your development environment and contribute, please
 
 ## 💬 Community & Support
 
-*   **[GitHub Discussions](https://github.com/DeepTrail/deepsecure/discussions):** <!-- TODO: Update link --> The primary forum for questions, sharing use cases, brainstorming ideas, and general discussions about DeepSecure and AI agent security. This is where we want to build our community!
-*   **[GitHub Issues](https://github.com/DeepTrail/deepsecure/issues):** <!-- TODO: Update link --> For bug reports and specific, actionable feature requests.
+*   **[GitHub Discussions](https://github.com/DeepTrail/deepsecure/discussions):** The primary forum for questions, sharing use cases, brainstorming ideas, and general discussions about DeepSecure and AI agent security. This is where we want to build our community!
+*   **[GitHub Issues](https://github.com/DeepTrail/deepsecure/issues):** For bug reports and specific, actionable feature requests.
 
 We're committed to fostering an open and welcoming community.
 
