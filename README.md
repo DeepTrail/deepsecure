@@ -32,7 +32,7 @@ Get fully set up with DeepSecure in under 5 minutes—secure your AI agents inst
 
 *   Python 3.9+
 *   `pip` (Python package installer)
-*   Access to an OS keyring (macOS Keychain, Linux Secret Service, Windows Credential Vault) for default secure key storage of agent private keys.
+*   Access to an OS keyring (macOS Keychain) for default secure key storage of agent private keys.
 *   **Docker and Docker Compose** for [Running the Credential Service (Backend)](#️-running-the-credential-service-backend).
 
 ### Installation
