@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2025-06-06
+
+### Added
+- **New `CONTRIBUTING.md`:** Moved detailed development and contribution guidelines out of the `README.md` and into a dedicated `CONTRIBUTING.md` to keep the main readme focused on the user.
+
+### Changed
+- **Complete `README.md` Overhaul:** Restructured and rewrote the main `README.md` from the ground up to be more concise, developer-centric, and compelling for a startup audience.
+    - Moved "Getting Started" and "Quick Start" to the top for immediate value.
+    - Reframed the narrative to focus on solving developer pain points ("Stop wrestling with auth & scattered API keys").
+    - Added "Before vs. After" diagrams to visually communicate the value proposition.
+    - Consolidated lengthy security problem descriptions into a more digestible `🤔 Why DeepSecure?` section.
+    - Streamlined the `README.md` by removing redundant information and verbose command outputs.
+
 ## [0.1.5] - 2025-06-04
 
 ### Changed
