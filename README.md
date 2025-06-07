@@ -1,7 +1,13 @@
-<div style="display: flex; align-items: center; gap: 20px;">
-  <img src="assets/deeptrail_logo.png" alt="DeepSecure Logo" width="80">
-  <h1 style="margin: 0;">DeepSecure: Effortless Identity & Access for AI Agents</h1>
-</div>
+<table style="border: none; border-collapse: collapse;">
+  <tr style="border: none;">
+    <td width="90" style="border: none; vertical-align: middle;">
+      <img src="assets/deeptrail_logo.png" alt="DeepSecure Logo" width="80">
+    </td>
+    <td style="border: none; vertical-align: middle;">
+      <h1 style="margin: 0;">DeepSecure: Effortless Identity & Access for AI Agents</h1>
+    </td>
+  </tr>
+</table>
 
 <br/>
 
