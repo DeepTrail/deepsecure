@@ -29,7 +29,7 @@ Get fully set up with DeepSecure in under 5 minutes—secure your AI agents inst
 
 *   Python 3.9+
 *   `pip` (Python package installer)
-*   Access to an OS keyring (macOS Keychain, Linux Secret Service, Windows Credential Vault) for default secure key storage of agent private keys.
+*   Access to an OS keyring (macOS Keychain) for default secure key storage of agent private keys.
 *   **Docker and Docker Compose** for [Running the Credential Service (Backend)](#️-running-the-credential-service-backend).
 
 ### Installation
@@ -148,19 +148,33 @@ The common approach—hardcoding static `API_KEY`s in `.env` files and writing c
 
 This problem gets exponentially worse as you add more agents and more services. You end up with a complex, fragile web of hardcoded secrets and repetitive auth code that creates security nightmares and kills development velocity.
 
+Before DeepSecure, agent credentials are a tangled mess. Static, long-lived API keys are often shared between multiple agents and manually embedded in configurations. This is not scalable, creates a high risk of key leakage, and makes auditing nearly impossible.
+
 ```mermaid
 graph LR
+    classDef agentNode fill:#2c3e50,stroke:#1a252f,color:#eee,stroke-width:2px,font-size:14px;
+    classDef apiNode fill:#34495e,stroke:#2a3b4d,color:#ddd,stroke-width:2px,font-size:14px;
+
     subgraph "Before DeepSecure: The Mess"
-        Agent1["Agent 1"] -- "API_KEY_DATABASE" --> Database
-        Agent2["Agent 2"] -- "API_KEY_DATABASE" --> Database
+        Agent1["Agent 1"]
+        Agent2["Agent 2"]
+        Agent3["Agent 3"]
+
+        Database["Database"]
+        BillingAPI["BillingAPI"]
+        ThirdPartyAPI["ThirdPartyAPI"]
+
+        Agent1 -- "API_KEY_DATABASE" --> Database
+        Agent2 -- "API_KEY_DATABASE" --> Database
         Agent1 -- "API_KEY_BILLING" --> BillingAPI
-        Agent3["Agent 3"] -- "API_KEY_BILLING" --> BillingAPI
+        Agent3 -- "API_KEY_BILLING" --> BillingAPI
         Agent2 -- "API_KEY_THIRD_PARTY" --> ThirdPartyAPI
 
-        style Agent1 fill:#f9f,stroke:#333,stroke-width:2px
-        style Agent2 fill:#f9f,stroke:#333,stroke-width:2px
-        style Agent3 fill:#f9f,stroke:#333,stroke-width:2px
+        class Agent1,Agent2,Agent3 agentNode;
+        class Database,BillingAPI,ThirdPartyAPI apiNode;
     end
+
+    linkStyle default stroke:#888,stroke-width:2px;
 ```
 
 ### The Solution: Programmatic Identity and Access
@@ -173,12 +187,28 @@ DeepSecure treats **identity as code**. Instead of managing keys, you manage age
 
 This workflow eliminates static secrets and custom auth boilerplate, provides a clear audit trail, and lets you build more complex, multi-agent systems securely from the start.
 
+With DeepSecure, the workflow is clean, scalable, and secure. Instead of static keys, agents request short-lived, single-purpose credentials from the DeepSecure service exactly when they need them. This enforces the principle of least privilege, eliminates static secret sprawl, and creates a clear, auditable trail.
+
 ```mermaid
 graph TD
-    subgraph "The DeepSecure Way: Clean & Scalable"
-        Agent1["Agent 1"] -->|"Request Credential"| DeepSecure
-        Agent2["Agent 2"] -->|"Request Credential"| DeepSecure
-        Agent3["Agent 3"] -->|"Request Credential"| DeepSecure
+    classDef deepsecureNode fill:#1f77b4,stroke:#0b3d91,color:#fff,stroke-width:3px,font-weight:bold,font-size:16px;
+    classDef agentNode fill:#2c3e50,stroke:#1a252f,color:#eee,stroke-width:2px,font-size:14px;
+    classDef apiNode fill:#34495e,stroke:#2a3b4d,color:#ddd,stroke-width:2px,font-size:14px;
+
+    subgraph "With DeepSecure: Clean & Scalable"
+        Agent1["Agent 1"]
+        Agent2["Agent 2"]
+        Agent3["Agent 3"]
+
+        DeepSecure["DeepSecure"]
+
+        Database["Database"]
+        BillingAPI["BillingAPI"]
+        ThirdPartyAPI["ThirdPartyAPI"]
+
+        Agent1 -->|"Request Credential"| DeepSecure
+        Agent2 -->|"Request Credential"| DeepSecure
+        Agent3 -->|"Request Credential"| DeepSecure
 
         DeepSecure -->|"Issue Short-Lived Token"| Agent1
         DeepSecure -->|"Issue Short-Lived Token"| Agent2
@@ -188,8 +218,12 @@ graph TD
         Agent2 -->|"Access with Token"| BillingAPI
         Agent3 -->|"Access with Token"| ThirdPartyAPI
 
-        style DeepSecure fill:#ccf,stroke:#333,stroke-width:2px
+        class DeepSecure deepsecureNode;
+        class Agent1,Agent2,Agent3 agentNode;
+        class Database,BillingAPI,ThirdPartyAPI apiNode;
     end
+
+    linkStyle default stroke:#888,stroke-width:2px;
 ```
 
 By adopting this pattern from day one, you avoid painful architectural rework later and can scale your agent workforce with confidence.
@@ -229,34 +263,44 @@ _This is an active area of development, and contributions or feedback are highly
 The following diagram illustrates the high-level architecture of DeepSecure and how its components interact:
 
 ```mermaid
-        graph LR
-            subgraph "User Space"
-                Developer["Developer/User"]
-                AIAgent["AI Agent / Application <br/> (uses DeepSecure SDK)"]
-                CLI["DeepSecure CLI"]
-            end
+graph LR
+    classDef userNode fill:#2c3e50,stroke:#1a252f,color:#eee,stroke-width:2px,font-size:14px;
+    classDef sdkNode fill:#34495e,stroke:#2a3b4d,color:#ddd,stroke-width:2px,font-size:14px;
+    classDef backendNode fill:#1f77b4,stroke:#0b3d91,color:#fff,stroke-width:3px,font-weight:bold,font-size:16px;
 
-            subgraph "Local System"
-                SDK["DeepSecure Python SDK"]
-                Keyring["OS Keyring <br/> (Agent Private Keys)"]
-            end
+    subgraph "User Space"
+        Developer["Developer/User"]
+        AIAgent["AI Agent / Application<br/>(uses DeepSecure SDK)"]
+        CLI["DeepSecure CLI"]
+    end
 
-            subgraph "Backend Infrastructure"
-                CredService["DeepSecure credservice <br/> (API Backend)"]
-                DB["Database <br/> (Agent Info, Credential Metadata)"]
-            end
+    subgraph "Local System"
+        SDK["DeepSecure Python SDK"]
+        Keyring["OS Keyring<br/>(Agent Private Keys)"]
+    end
 
-            Developer -->|"Manages/Uses"| CLI
-            Developer -->|"Integrates"| SDK
-            AIAgent -->|"Uses"| SDK
+    subgraph "Backend Infrastructure"
+        CredService["DeepSecure credservice<br/>(API Backend)"]
+        DB["Database<br/>(Agent Info, Credential Metadata)"]
+    end
 
-            CLI -->|"Manages/Uses"| Keyring
-            SDK -->|"Manages/Uses"| Keyring
+    Developer -->|"Manages/Uses"| CLI
+    Developer -->|"Integrates"| SDK
+    AIAgent -->|"Uses"| SDK
 
-            CLI -->|"HTTP API Calls <br/> (Agent Mgmt, Credential Issuance)"| CredService
-            SDK -->|"HTTP API Calls <br/> (Agent Registration, Credential Issuance)"| CredService
+    CLI -->|"Manages/Uses"| Keyring
+    SDK -->|"Manages/Uses"| Keyring
 
-            CredService -->|"Stores/Retrieves Data"| DB
+    CLI -->|"HTTP API Calls<br/>(Agent Mgmt, Credential Issuance)"| CredService
+    SDK -->|"HTTP API Calls<br/>(Agent Registration, Credential Issuance)"| CredService
+
+    CredService -->|"Stores/Retrieves Data"| DB
+
+    class Developer,AIAgent,CLI userNode;
+    class SDK,Keyring sdkNode;
+    class CredService,DB backendNode;
+
+    linkStyle default stroke:#888,stroke-width:2px;
 ```
 
 *   **Agent Identity:** A persistent, unique identity for each AI agent, backed by a public/private key pair. The agent's primary private key is securely stored (default: OS keyring).
