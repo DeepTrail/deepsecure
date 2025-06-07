@@ -2,14 +2,6 @@
 
 First off, thank you for considering contributing to DeepSecure! It's people like you that make open source such a great community. We welcome any and all contributions.
 
-## Ways to Contribute
-
-*   🌟 **Star our GitHub Repository!**
-*   🐛 **Report Bugs or Feature Requests:** Use [GitHub Issues](https://github.com/DeepTrail/deepsecure/issues).
-*   💡 **Suggest Features:** Share ideas on [GitHub Issues](https://github.com/DeepTrail/deepsecure/issues) or [GitHub Discussions](https://github.com/DeepTrail/deepsecure/discussions).
-*   📝 **Improve Documentation:** Help us make our guides clearer.
-*   💻 **Write Code:** Tackle bugs, add features, improve integrations.
-
 ## Getting Started with Code Contributions
 
 1.  Fork the repository.
