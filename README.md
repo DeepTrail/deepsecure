@@ -10,9 +10,6 @@
     <img src="https://static.pepy.tech/badge/deepsecure" alt="PyPI Downloads"/>
   </a>
   <a href="https://pypi.org/project/deepsecure/">
-    <img src="https://img.shields.io/pypi/dm/deepsecure?style=flat-square" alt="PyPI Downloads"/>
-  </a>
-  <a href="https://pypi.org/project/deepsecure/">
     <img src="https://img.shields.io/pypi/pyversions/deepsecure?style=flat-square" alt="Python Version"/>
   </a>
   <a href="https://opensource.org/licenses/Apache-2.0">
@@ -27,6 +24,9 @@
   </a>
   <a href="https://github.com/DeepTrail/deepsecure/pulls">
     <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome"/>
+  </a>
+  <a href="https://x.com/imaxxs">
+    <img src="https://img.shields.io/badge/Follow-Mahendra-blue?style=flat-square&logo=x" alt="Follow on X"/>
   </a>
   <a href="https://x.com/0xdeeptrail">
     <img src="https://img.shields.io/badge/Follow-@0xdeeptrail-blue?style=flat-square&logo=x" alt="Follow on X"/>
