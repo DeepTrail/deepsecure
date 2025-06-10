@@ -34,6 +34,7 @@ dependencies = [
     "requests>=2.30.0",     # HTTP client for API calls
     "toml>=0.10.2",         # TOML config file parsing
     "pydantic>=2.0.0",      # Data validation
+    "cryptography>=42.0.0", # Cryptographic primitives
 ]
 
 [project.optional-dependencies]

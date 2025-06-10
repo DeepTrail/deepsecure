@@ -10,10 +10,14 @@ COPY requirements.txt .
 # Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code and Alembic setup
+# Copy the application code and scripts
 COPY ./app ./app
 COPY ./alembic ./alembic
-COPY alembic.ini .
+COPY ./scripts ./scripts
+
+# Generate alembic.ini
+RUN python scripts/generate_alembic_config.py
+
 COPY run_service.sh .
 
 # Make port 8001 available to the world outside this container
