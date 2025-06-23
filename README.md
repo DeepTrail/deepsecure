@@ -1,16 +1,13 @@
 <div align="center">
   <h1 style="display: flex; align-items: center;">
     <img src="assets/deeptrail_logo.png" alt="DeepSecure Logo" height="24" style="transform: translateY(2px);" />
-    <span style="margin-left: 15px;">DeepSecure: Effortless Identity & Access for AI Agents</span>
+    <span style="margin-left: 15px;">DeepSecure: Effortless Identity & Auth for AI Agents</span>
   </h1>
   <a href="https://pypi.org/project/deepsecure/">
     <img src="https://img.shields.io/pypi/v/deepsecure?style=flat-square" alt="PyPI version"/>
   </a>
   <a href="https://pepy.tech/projects/deepsecure">
     <img src="https://static.pepy.tech/badge/deepsecure" alt="PyPI Downloads"/>
-  </a>
-  <a href="https://pypi.org/project/deepsecure/">
-    <img src="https://img.shields.io/pypi/dm/deepsecure?style=flat-square" alt="PyPI Downloads"/>
   </a>
   <a href="https://pypi.org/project/deepsecure/">
     <img src="https://img.shields.io/pypi/pyversions/deepsecure?style=flat-square" alt="Python Version"/>
@@ -27,6 +24,9 @@
   </a>
   <a href="https://github.com/DeepTrail/deepsecure/pulls">
     <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome"/>
+  </a>
+  <a href="https://x.com/imaxxs">
+    <img src="https://img.shields.io/badge/Follow-Mahendra-blue?style=flat-square&logo=x" alt="Follow on X"/>
   </a>
   <a href="https://x.com/0xdeeptrail">
     <img src="https://img.shields.io/badge/Follow-@0xdeeptrail-blue?style=flat-square&logo=x" alt="Follow on X"/>
