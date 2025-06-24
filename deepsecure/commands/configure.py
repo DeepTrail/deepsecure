@@ -3,7 +3,7 @@ from rich import print_json
 from typing_extensions import Annotated
 from typing import Optional
 
-from deepsecure.core import config
+from deepsecure._core import config
 from .. import utils as cli_utils
 
 app = typer.Typer(

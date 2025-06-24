@@ -1,0 +1,24 @@
+# This file defines access control policies for the DeepSecure Credential Service.
+# It maps agents and requested resources (scopes) to specific secrets.
+
+policies:
+  # Policy for the Vapi production credentials.
+  - name: "vapi-production-key-access"
+    # A list of agent names that are allowed to use this policy.
+    # The name must match the AGENT_NAME in the Python script.
+    agents:
+      - "vapi-call-creator-agent"
+    
+    # Defines the resource and actions this policy grants access to.
+    # These must match the `resource_id` and `action` in the SDK request.
+    resources:
+      - resource_id: "vapi_production_credentials"
+        actions: ["get_api_key"]
+
+    # Specifies the secret to return when this policy is matched.
+    # The 'value_from_env' tells credservice to get the secret from an
+    # environment variable on the server. This is a secure practice.
+    #
+    # The resulting credential's `access_token` will be set to this value.
+    issue:
+      value_from_env: "VAPI_API_KEY_PROD" 

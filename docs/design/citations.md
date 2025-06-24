@@ -20,3 +20,4 @@
 * [How to Connect Azure AD Managed Identities to AWS Resources | by René Bremer | TDS Archive](https://medium.com/tdsarchive/how-to-connect-azure-ad-managed-identities-to-aws-resources-8f3c7e2f4a1b)
 * [No More Storing Secrets Anywhere! Time for Azure Manage Identity](https://medium.com/@saurabhsharma_33195/no-more-storing-secrets-anywhere-time-for-azure-manage-identity-9f3c7e2f4a1b)
 * [Managing Credentials | Security | Langchain Tutorial](https://swiftorial.com/langchain/security/managing-credentials/)
+* [The future of AI agents—and why OAuth must evolve](https://techcommunity.microsoft.com/blog/microsoft-entra-blog/the-future-of-ai-agents%E2%80%94and-why-oauth-must-evolve/3827391)

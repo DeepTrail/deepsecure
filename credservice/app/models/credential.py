@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, LargeBinary, DateTime, func, ForeignKey, JSON, Boolean
+from sqlalchemy import Column, String, LargeBinary, DateTime, func, ForeignKey, JSON, Boolean, Integer
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID  # Keep for potential future use if switching DB
 
@@ -37,3 +37,10 @@ class Credential(Base):
     # @hybrid_property
     # def is_active(self):
     #     return self.revoked_at is None and self.expires_at > datetime.now(timezone.utc) 
+
+class Secret(Base):
+    __tablename__ = "secrets"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    value = Column(String, nullable=False) # In a real system, this would be encrypted
+    created_at = Column(DateTime(timezone=True), server_default=func.now()) 

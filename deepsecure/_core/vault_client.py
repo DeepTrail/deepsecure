@@ -22,7 +22,7 @@ from .crypto.key_manager import key_manager
 from .audit_logger import audit_logger
 from .. import exceptions
 from .identity_manager import identity_manager
-from ..core import schemas as client_schemas # Import client-side Pydantic schemas for request payload
+from . import schemas as client_schemas # Import client-side Pydantic schemas for request payload
 
 # print("\n<<<< DEBUG: vault_client.py IS BEING LOADED AND EXECUTED (top level) >>>>\n", file=sys.stderr)
 # # To be absolutely sure, you could uncomment the next line to see if it exits here:

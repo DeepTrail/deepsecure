@@ -81,7 +81,7 @@ class CredentialIssueResponse(CredentialBase):
 
 # --- Verify Credential --- #
 
-class CredentialVerifyResponse(BaseModel):
+class CredentialVerifyResponse(CredentialBase):
     """Schema for the response when verifying a credential."""
     credential_id: str
     is_valid: bool
@@ -135,4 +135,13 @@ class Credential(CredentialBase):
             return base64.b64encode(v).decode('utf-8')
         if isinstance(v, str):
             return v
-        raise ValueError("Field must be bytes or base64 string for Credential model.") 
+        raise ValueError("Field must be bytes or base64 string for Credential model.")
+
+# Schema for storing a simple key-value secret
+class SecretStoreRequest(BaseModel):
+    name: str
+    value: str
+
+class SecretStoreResponse(BaseModel):
+    name: str
+    message: str = "Secret stored successfully" 

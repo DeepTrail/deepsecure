@@ -12,10 +12,30 @@ from cryptography.exceptions import InvalidSignature
 
 from app import schemas, crud
 from app.api import deps
+from app.schemas.credential import SecretStoreRequest, SecretStoreResponse
 from app.schemas.agent import AgentRotateRequest # Import schema for rotation
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+@router.post("/store", response_model=SecretStoreResponse, status_code=status.HTTP_201_CREATED)
+def store_secret(
+    secret_in: SecretStoreRequest,
+    db: deps.DbDep,
+    _: Any = deps.APIKeyDep
+):
+    """
+    Store or update a secret in the vault.
+    This is a simple key-value store for demonstration and testing.
+    In a real-world scenario, this would involve encryption and more robust access control.
+    """
+    logger.info(f"Storing secret with name: {secret_in.name}")
+    try:
+        crud.secret.create_secret(db=db, obj_in=secret_in)
+        return {"name": secret_in.name, "message": "Secret stored successfully"}
+    except Exception as e:
+        logger.error(f"Failed to store secret {secret_in.name}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not store secret")
 
 @router.post("/credentials", response_model=schemas.credential.CredentialIssueResponse, status_code=status.HTTP_201_CREATED)
 def issue_credential(

@@ -16,13 +16,14 @@ class AgentClient(BaseClient):
         # self.service_name = "agents" # Or similar if BaseClient uses it for paths
         self.api_prefix = "/api/v1/agents" # Define the common API prefix for agents
 
-    def register_agent(self, public_key: str, name: Optional[str], description: Optional[str]) -> Dict[str, Any]:
+    def register_agent(self, public_key: str, name: Optional[str], description: Optional[str], agent_id: Optional[str] = None) -> Dict[str, Any]:
         """Register a new agent with the backend service.
 
         Args:
             public_key: Base64 encoded string of the raw Ed25519 public key.
             name: Optional human-readable name for the agent.
             description: Optional description for the agent.
+            agent_id: Optional agent ID. If provided, the backend will use this ID.
 
         Returns:
             A dictionary representing the registered agent's details from the backend.
@@ -35,10 +36,14 @@ class AgentClient(BaseClient):
             "name": name,
             "description": description,
         }
+        
+        if agent_id:
+            payload["agent_id"] = agent_id
         # Remove None values from payload if backend expects them to be absent
         payload = {k: v for k, v in payload.items() if v is not None}
         
-        logger.info(f"Registering agent with backend. Name: {name}, PK starts with: {public_key[:20]}...")
+        pk_preview = f"{public_key[:20]}..." if public_key else "None"
+        logger.info(f"Registering agent with backend. Name: {name}, PK starts with: {pk_preview}")
         try:
             response_data = self._request(
                 method="POST",

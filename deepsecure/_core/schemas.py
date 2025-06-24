@@ -31,9 +31,10 @@ class CredentialBase(BaseModel):
     origin_context: Optional[Dict[str, Any]] = None # Added origin_context
 
 class CredentialResponse(CredentialBase):
-    # These are added/handled client-side but good to have in the model for the user of the client
+    """The full credential response returned to the client, including the ephemeral private key."""
     ephemeral_public_key_b64: str
-    ephemeral_private_key_b64: Optional[str] = None # Private key is only present after successful issue
+    ephemeral_private_key_b64: str
+    secret_value: Optional[str] = None # Temporary field for fetching secrets directly
 
 class RevocationResponse(BaseModel):
     status: str # e.g., "revoked"
@@ -47,6 +48,7 @@ class AgentKeyRotationResponse(BaseModel):
     message: Optional[str] = None
 
 class VerificationResponse(CredentialBase):
+    """Response for a credential verification request."""
     is_valid: bool
     # ephemeral_public_key is part of CredentialBase if API returns it for verification
     # If not, it might need to be added here specifically or handled differently.
