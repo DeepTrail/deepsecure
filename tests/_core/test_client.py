@@ -22,15 +22,19 @@ def mock_base_request():
         yield mock_request
 
 @pytest.fixture
-def core_vault_client():
+def core_vault_client(monkeypatch):
     """Fixture to get an instance of the CoreVaultClient with a mocked token."""
+    # Set the backend URL via monkeypatching the environment variable
+    monkeypatch.setenv("DEEPSECURE_CREDSERVICE_URL", "http://test-credservice.dsv.local")
     with patch('deepsecure.auth.get_token', return_value=MOCK_TOKEN):
         client = CoreVaultClient()
         yield client
 
 @pytest.fixture
-def core_agent_client():
+def core_agent_client(monkeypatch):
     """Fixture to get an instance of the CoreAgentClient with a mocked token."""
+    # Set the backend URL via monkeypatching the environment variable
+    monkeypatch.setenv("DEEPSECURE_CREDSERVICE_URL", "http://test-credservice.dsv.local")
     with patch('deepsecure.auth.get_token', return_value=MOCK_TOKEN):
         client = CoreAgentClient()
         yield client

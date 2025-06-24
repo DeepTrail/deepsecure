@@ -1,0 +1,10 @@
+# Base runtime dependencies for deepsecure
+# These are the minimum requirements for the package to function
+
+typer[all]>=0.9.0
+requests>=2.28.0
+keyring>=24.0.0
+pyjwt[crypto]>=2.6.0
+pydantic>=2.0.0
+toml>=0.10.0
+rich>=13.0.0 

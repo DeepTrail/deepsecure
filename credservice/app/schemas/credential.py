@@ -7,7 +7,7 @@ import base64
 import logging
 import binascii
 
-from pydantic import BaseModel, Field, field_validator, FieldValidationInfo
+from pydantic import BaseModel, Field, field_validator, ValidationInfo
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class CredentialIssueRequest(CredentialBase):
 
     @field_validator('ephemeral_public_key', 'signature', mode='before')
     @classmethod
-    def validate_and_decode_field_to_bytes(cls, v: Any, info: FieldValidationInfo) -> bytes:
+    def validate_and_decode_field_to_bytes(cls, v: Any, info: ValidationInfo) -> bytes:
         """
         Validates that the input 'v' (for ephemeral_public_key or signature)
         is a base64 string, decodes it, checks its length, and returns raw bytes.

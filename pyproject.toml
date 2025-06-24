@@ -11,13 +11,12 @@ authors = [
 description = "DeepSecure: Secure your AI agent and agentic AI application ecosystem with DeepSecure."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Environment :: Console",
     "Intended Audience :: Developers",
@@ -47,6 +46,49 @@ frameworks = [
     "crewai",
     "fastapi",
     "uvicorn",
+]
+# Modern development tooling
+lint = [
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+# Enhanced testing tools
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.10.0",
+    "responses>=0.23.0",
+    "httpx>=0.24.0",  # For async testing
+]
+# Documentation generation
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocstrings[python]>=0.22.0",
+    "mkdocs-gen-files>=0.5.0",
+]
+# Build and packaging tools
+build = [
+    "build>=0.10.0",
+    "twine>=4.0.0",
+    "wheel>=0.40.0",
+]
+# Security scanning
+security = [
+    "bandit>=1.7.0",
+    "safety>=2.3.0",
+]
+# Performance profiling
+perf = [
+    "py-spy>=0.3.0",
+    "memory-profiler>=0.60.0",
+]
+# Complete development environment (combines multiple groups)
+all-dev = [
+    "deepsecure[dev,lint,test,docs,build,security]",
 ]
 
 [project.urls]

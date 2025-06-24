@@ -1,0 +1,17 @@
+# Testing dependencies for deepsecure
+# Install with: pip install -r requirements/test.txt
+
+-r base.txt
+
+# Core testing framework
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.10.0
+responses>=0.23.0
+httpx>=0.24.0
+
+# Framework testing dependencies
+crewai
+fastapi
+uvicorn 

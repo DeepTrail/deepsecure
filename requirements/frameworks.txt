@@ -1,0 +1,13 @@
+# Framework integration dependencies for deepsecure
+# Install with: pip install -r requirements/frameworks.txt
+
+-r base.txt
+
+# Agentic AI frameworks
+crewai
+fastapi
+uvicorn
+
+# Additional framework dependencies (optional)
+langchain>=0.1.0
+langchain-community>=0.0.10 
