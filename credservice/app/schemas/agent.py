@@ -1,7 +1,7 @@
 """Pydantic schemas for Agent related API operations."""
 
 import logging
-from pydantic import BaseModel, Field, field_validator, model_validator, FieldValidationInfo
+from pydantic import BaseModel, Field, field_validator, model_validator, ValidationInfo
 from typing import Optional, Any, List
 from datetime import datetime
 import base64
