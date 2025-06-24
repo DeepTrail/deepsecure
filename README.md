@@ -267,7 +267,14 @@ print(f"Secret fetched with agent-specific client! Value starts with: '{api_key_
 
 ### What's Next?
 
-You've now seen the core workflow! For more advanced patterns, including integrations with LangChain and CrewAI, check out the `examples/` directory and our complete [**CLI Command Reference**](./docs/cli_reference.md).
+You've now seen the core workflow! Ready to dive deeper?
+
+- 🐍 **[Python SDK Guide](./docs/README.md)** - Build secure AI agents with our SDK
+- 🔧 **[CLI Reference](./docs/cli_reference.md)** - Master the command-line interface  
+- ⚙️ **[Backend Setup](./docs/credservice-setup.md)** - Deploy your own credservice
+- 🤝 **[Contributing](./CONTRIBUTING.md)** - Help improve DeepSecure
+
+For hands-on examples, explore our [`examples/`](./examples/) directory with LangChain, CrewAI, and multi-agent patterns.
 
 ## 🤝 Contributing
 
