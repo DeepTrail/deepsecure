@@ -3,6 +3,7 @@ import typer
 import importlib.metadata
 import sys
 from typing_extensions import Annotated
+import logging
 
 from .commands import (
     vault,
@@ -11,7 +12,7 @@ from .commands import (
     # invoke removed
 )
 from . import __version__
-from .core.config import get_cli_log_level
+from ._core.config import get_cli_log_level, set_cli_log_level
 from .utils import setup_logging
 
 # Initialize logging as early as possible

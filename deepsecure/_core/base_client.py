@@ -33,7 +33,9 @@ class BaseClient:
 
     @property
     def backend_url(self) -> Optional[str]:
-        """Get the backend service URL from environment variable."""
+        """Get the backend service URL from instance attribute or environment variable."""
+        if hasattr(self, 'base_url') and self.base_url:
+            return self.base_url
         if self._backend_url is None:
             env_url = os.environ.get("DEEPSECURE_CREDSERVICE_URL")
             # Removed config file fallback
@@ -46,7 +48,9 @@ class BaseClient:
 
     @property
     def backend_api_token(self) -> Optional[str]:
-        """Get the backend API token from environment variable."""
+        """Get the backend API token from instance attribute or environment variable."""
+        if hasattr(self, 'token') and self.token:
+            return self.token
         if self._backend_api_token is None:
             env_token = os.environ.get("DEEPSECURE_CREDSERVICE_API_TOKEN")
             # Removed config file fallback

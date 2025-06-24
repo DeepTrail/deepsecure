@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2024-07-27
+
+This is a major release that refactors the `deepsecure` package from a CLI-centric tool into a professional, object-oriented Python SDK. It introduces a clear, public API for developers while significantly improving the project's structure, testability, and documentation.
+
+### 🚀 Changed (Major SDK Refactoring)
+- **Architectural Overhaul**: The entire package has been restructured. All internal logic is now encapsulated in a private `deepsecure/_core` module, providing a clean separation of concerns from the public API.
+- **High-Level SDK Client**: Introduced a new, developer-friendly `deepsecure.Client` class as the primary public interface for all programmatic interactions.
+- **Unified Codebase**: All CLI commands have been refactored to use the new public `deepsecure.Client`, ensuring consistent behavior between the CLI and programmatic usage.
+
+### ✨ Added
+- **Full Agent Management**: Implemented the complete `deepsecure agent` command group (`register`, `list`, `describe`, `delete`) for explicit lifecycle management of agent identities.
+- **Comprehensive Test Suite**: Added a robust test suite with unit tests for core components (`tests/_core`) and integration tests for the public SDK (`tests/test_sdk_client.py`), CLI commands, and example scripts.
+- **Framework Integration Examples**: New scripts in the `examples/` directory now demonstrate professional integration patterns for frameworks like LangChain and CrewAI using dependency injection.
+- **Secure Data Types**: Created `deepsecure/types.py` with a `Secret` data class that prevents accidental logging of sensitive values.
+- **Backend Secret Management**: Added support to the `credservice` backend for storing and managing generic secrets in the vault.
+
+### 🛠️ Fixed
+- **Core Testing Logic**: Corrected a critical flaw in the testing strategy by mocking the underlying HTTP request layer, enabling true unit tests of the client logic.
+- **Refactoring Bugs**: Resolved numerous `ImportError` and `AttributeError` issues that arose from the major architectural refactoring.
+- **CLI Clean Exit**: The `deepsecure agent list` command now exits cleanly with a "No agents found" message instead of an error when the list is empty.
+
+### 📖 Documentation
+- Completely overhauled the `README.md` to improve clarity, structure, and developer onboarding.
+- Added a "Why DeepSecure?" section with "Before" and "After" architecture diagrams to better explain the project's value proposition.
+- Restructured the `Quick Start` guide into a logical, end-to-end workflow for new users.
+- Added detailed "Contributing" and "Community & Support" sections to encourage community engagement.
+- Created a comprehensive `docs/cli_reference.md` and linked it from the `README.md`.
+- Added a "What's Next?" section to guide developers toward more advanced use cases.
+
+### 🗑️ Removed
+- **Legacy Code**: Deleted the entire old `deepsecure/core/` module, which has been fully replaced by the new `_core` architecture.
+- **Redundant Tests**: Removed outdated test files that were replaced by the new, more comprehensive test suite.
+
 ## [0.1.6] - 2025-06-06
 
 ### Added

@@ -64,11 +64,12 @@ class CRUDAgent(CRUDBase[AgentModel, AgentCreate, AgentUpdate]): # Use AgentUpda
                 params=None, orig=None # Simulating IntegrityError structure
             )
 
-        generated_agent_id = f"agent-{uuid.uuid4()}"
-        logger.info(f"CRUD: Creating agent with generated agent_id: {generated_agent_id}, name: {obj_in.name}")
+        # Use provided agent_id or generate one
+        agent_id = obj_in.agent_id or f"agent-{uuid.uuid4()}"
+        logger.info(f"CRUD: Creating agent with agent_id: {agent_id} (provided: {obj_in.agent_id is not None}), name: {obj_in.name}")
 
         db_obj_data = {
-            "agent_id": generated_agent_id,
+            "agent_id": agent_id,
             "name": obj_in.name,
             "description": obj_in.description,
             "current_public_key": obj_in.public_key,
@@ -82,11 +83,11 @@ class CRUDAgent(CRUDBase[AgentModel, AgentCreate, AgentUpdate]): # Use AgentUpda
             db.commit()
         except IntegrityError as e: # Catch unique constraint violations (e.g. agent_id somehow duplicated)
             db.rollback()
-            logger.error(f"Database integrity error during agent creation for {generated_agent_id}: {e}", exc_info=True)
+            logger.error(f"Database integrity error during agent creation for {agent_id}: {e}", exc_info=True)
             raise
         except Exception as e:
             db.rollback()
-            logger.error(f"Database commit failed during agent creation for {generated_agent_id}: {e}", exc_info=True)
+            logger.error(f"Database commit failed during agent creation for {agent_id}: {e}", exc_info=True)
             raise
         db.refresh(db_obj)
         logger.info(f"Successfully created and refreshed agent: {db_obj.agent_id}")

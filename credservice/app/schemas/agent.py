@@ -28,6 +28,7 @@ class AgentBase(BaseModel):
     description: Optional[str] = Field(None, example="Agent for processing order data.")
 
 class AgentCreate(AgentBase):
+    agent_id: Optional[str] = Field(None, description="Optional agent ID. If not provided, one will be generated.")
     public_key: bytes
     
     @field_validator('public_key', mode='before')
@@ -61,38 +62,20 @@ class AgentInDBBase(AgentBase):
 # --- Schemas for API Responses --- #
 class Agent(AgentInDBBase): # Inherits fields from AgentInDBBase, including current_public_key: bytes
     
-    # This is the field we want in the JSON output, derived from current_public_key (bytes)
-    public_key_output: Optional[str] = Field(None, validation_alias="current_public_key", serialization_alias="publicKey")
+    # Override the current_public_key field to return a base64 string instead of bytes
+    current_public_key: str = Field(serialization_alias="publicKey")
 
-    # Explicitly exclude the raw bytes version of current_public_key from being part of the direct output fields
-    # if it was inherited and not handled by the alias for public_key_output.
-    # The validation_alias on public_key_output should handle sourcing from current_public_key.
-    # If current_public_key is still considered a separate field for serialization by Pydantic, exclude it.
-    current_public_key: Any = Field(None, exclude=True) 
-
-    @field_validator('public_key_output', mode='before')
+    @field_validator('current_public_key', mode='before')
     @classmethod
-    def populate_public_key_output(cls, v: Any, info: FieldValidationInfo) -> Optional[str]:
-        # logger.info(f"[AGENT_SCHEMA_DEBUG] populate_public_key_output called. Value v: {v} (type: {type(v)})")
-        # logger.info(f"[AGENT_SCHEMA_DEBUG] info.data: {info.data}")
-
+    def encode_public_key_bytes(cls, v: Any) -> str:
+        """Convert public key bytes from database to base64 string for JSON response."""
         if isinstance(v, bytes):
-            encoded_pk = base64.b64encode(v).decode('utf-8')
-            # logger.info(f"[AGENT_SCHEMA_DEBUG] v is bytes, encoded to: {encoded_pk}")
-            return encoded_pk
-        
-        if v is None and info.data and isinstance(info.data.get('current_public_key'), bytes):
-            # logger.info("[AGENT_SCHEMA_DEBUG] v is None, trying info.data.get('current_public_key')")
-            encoded_pk = base64.b64encode(info.data['current_public_key']).decode('utf-8')
-            # logger.info(f"[AGENT_SCHEMA_DEBUG] Fallback successful, encoded to: {encoded_pk}")
-            return encoded_pk
-        
-        if isinstance(v, str):
-            # logger.warning(f"[AGENT_SCHEMA_DEBUG] populate_public_key_output received a string, expected bytes. Value: {v}")        
-            pass # Let it fall through to return None if not bytes and not handled above
-
-        # logger.error(f"[AGENT_SCHEMA_DEBUG] populate_public_key_output FALLING THROUGH, RETURNING NONE. v was: {v}")
-        return None
+            return base64.b64encode(v).decode('utf-8')
+        elif isinstance(v, str):
+            return v  # Already encoded
+        else:
+            logger.error(f"[AGENT_SCHEMA] Unexpected public key type: {type(v)}, value: {v}")
+            return ""  # Return empty string instead of None to avoid null issues
 
     model_config = {
         "from_attributes": True,
