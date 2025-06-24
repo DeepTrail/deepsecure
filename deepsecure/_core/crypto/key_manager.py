@@ -177,5 +177,16 @@ class KeyManager:
         
         return credential
 
+    def decode_public_key_b64(self, public_key_b64: str) -> ed25519.Ed25519PublicKey:
+        """Decodes a base64-encoded public key into a cryptography key object."""
+        try:
+            key_bytes = base64.b64decode(public_key_b64)
+            if len(key_bytes) != 32:
+                raise ValueError("Public key bytes must be 32 bytes long for Ed25519.")
+            return ed25519.Ed25519PublicKey.from_public_bytes(key_bytes)
+        except Exception as e:
+            # Re-raise as a more specific error if desired, or just ValueError
+            raise ValueError(f"Failed to decode or parse public key: {e}") from e
+
 # Singleton instance for easy access across the application.
 key_manager = KeyManager() 

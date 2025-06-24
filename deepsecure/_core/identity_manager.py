@@ -18,6 +18,7 @@ from keyring.errors import NoKeyringError, PasswordDeleteError, PasswordSetError
 from .crypto import key_manager as key_manager_module 
 from .. import utils 
 from ..exceptions import DeepSecureClientError, IdentityManagerError
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
 # Define constants
 _MODULE_DEEPSECURE_DIR = Path(os.path.expanduser("~/.deepsecure"))
@@ -82,6 +83,16 @@ class IdentityManager:
             raise IdentityManagerError(f"Invalid public key for fingerprinting: {ve}")
         except Exception as e: # Catch base64 decode errors or hashlib errors
             raise IdentityManagerError(f"Failed to generate fingerprint for public key '{public_key_b64[:10]}...': {e}")
+
+    def decode_private_key(self, private_key_b64: str) -> ed25519.Ed25519PrivateKey:
+        """Decodes a base64 private key into a cryptography key object."""
+        try:
+            key_bytes = base64.b64decode(private_key_b64)
+            if len(key_bytes) != 32:
+                raise ValueError("Private key bytes must be 32 bytes long for Ed25519.")
+            return ed25519.Ed25519PrivateKey.from_private_bytes(key_bytes)
+        except Exception as e:
+            raise IdentityManagerError(f"Failed to decode or parse private key: {e}") from e
 
     def _save_identity_metadata_to_file(self, agent_id: str, identity_metadata: Dict[str, Any]):
         """Saves ONLY the public metadata of an identity to a JSON file."""
@@ -291,6 +302,23 @@ class IdentityManager:
         }
         self._save_identity_metadata_to_file(agent_id, identity_metadata_for_file)
         # utils.console.print(f"[IdentityManager] Local identity metadata for [cyan]{agent_id}[/cyan] saved.", style="dim") # _save_identity_metadata_to_file now prints this
+
+    def find_identity_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Finds the first identity that matches the given name."""
+        if not self.identity_store_path.exists():
+            return None
+            
+        for identity_file in self.identity_store_path.glob("agent-*.json"):
+            try:
+                with open(identity_file, 'r') as f:
+                    data = json.load(f)
+                if data.get("name") == name:
+                    # Return the full identity, including private key
+                    return self.load_identity(data["id"])
+            except (json.JSONDecodeError, KeyError, IOError):
+                # Ignore corrupted or unreadable files during search
+                continue
+        return None
 
 # Singleton instance - this will be created with default paths initially
 identity_manager = IdentityManager()

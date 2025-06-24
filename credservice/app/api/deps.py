@@ -57,7 +57,7 @@ def verify_api_key(api_key_header: str = Depends(api_key_header_scheme)):
 
     token = api_key_header.split(" ")[1]
 
-    # Temporary debug logging
+    # Temporary debug logging (disabled)
     # logger.info(f"[AUTH_DEBUG] Token received by credservice: '{token}'")
     # logger.info(f"[AUTH_DEBUG] Token expected by credservice (settings.BACKEND_API_TOKEN): '{settings.BACKEND_API_TOKEN}'")
 
