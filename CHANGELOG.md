@@ -5,38 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.7] - 2024-07-27
+## [0.1.8] - 2025-07-31
 
-This is a major release that refactors the `deepsecure` package from a CLI-centric tool into a professional, object-oriented Python SDK. It introduces a clear, public API for developers while significantly improving the project's structure, testability, and documentation.
+### Added
+- **Automated Database Migrations**: The `credservice` now automatically runs database migrations on startup, eliminating the need for manual `alembic upgrade head` commands.
+- **Dynamic Backend Versioning**: The `credservice` `/health` endpoint now dynamically reports the project version from `pyproject.toml`, ensuring version consistency.
+- **Official Release Process**: Created a new `docs/deepsecure-release-process.md` to standardize the release workflow.
+- **Comprehensive Requirements**: Added a full suite of dependency groups (`[dev]`, `[test]`, `[docs]`, etc.) to `pyproject.toml` and a corresponding `requirements/` directory for flexible development setups.
+- **Developer `Makefile`**: Introduced a `Makefile` with convenient commands (`make test`, `make build`, etc.) to streamline common development tasks.
+- **Troubleshooting Guide**: Added a troubleshooting section to the `credservice-setup.md` guide with instructions for checking Docker logs.
 
-### 🚀 Changed (Major SDK Refactoring)
-- **Architectural Overhaul**: The entire package has been restructured. All internal logic is now encapsulated in a private `deepsecure/_core` module, providing a clean separation of concerns from the public API.
-- **High-Level SDK Client**: Introduced a new, developer-friendly `deepsecure.Client` class as the primary public interface for all programmatic interactions.
-- **Unified Codebase**: All CLI commands have been refactored to use the new public `deepsecure.Client`, ensuring consistent behavior between the CLI and programmatic usage.
+### Changed
+- **Simplified `credservice` Setup**: Completely overhauled `docs/credservice-setup.md` to be fully container-centric. The setup process is now a single `docker compose up` command.
+- **Improved `README.md` Clarity**: Refactored the main `README.md` to correct the Quick Start workflow, remove confusing instructions, and provide a clear "What's Next?" section for different user journeys.
+- **Enhanced Health Check**: The `/health` endpoint now provides a richer JSON response, including database connection status, for easier debugging.
+- **Standardized Release Testing**: The official release process now includes explicit, copy-pasteable commands for end-to-end testing of documentation and example scripts.
 
-### ✨ Added
-- **Full Agent Management**: Implemented the complete `deepsecure agent` command group (`register`, `list`, `describe`, `delete`) for explicit lifecycle management of agent identities.
-- **Comprehensive Test Suite**: Added a robust test suite with unit tests for core components (`tests/_core`) and integration tests for the public SDK (`tests/test_sdk_client.py`), CLI commands, and example scripts.
-- **Framework Integration Examples**: New scripts in the `examples/` directory now demonstrate professional integration patterns for frameworks like LangChain and CrewAI using dependency injection.
-- **Secure Data Types**: Created `deepsecure/types.py` with a `Secret` data class that prevents accidental logging of sensitive values.
-- **Backend Secret Management**: Added support to the `credservice` backend for storing and managing generic secrets in the vault.
+### Fixed
+- **Corrected Port and URL Mismatches**: Resolved all inconsistencies for the `credservice` port (`8001`) and URL across all documentation.
+- **Resolved Test Suite Failures**: Fixed numerous longstanding test failures, ensuring the test suite is stable and reliable.
 
-### 🛠️ Fixed
-- **Core Testing Logic**: Corrected a critical flaw in the testing strategy by mocking the underlying HTTP request layer, enabling true unit tests of the client logic.
-- **Refactoring Bugs**: Resolved numerous `ImportError` and `AttributeError` issues that arose from the major architectural refactoring.
-- **CLI Clean Exit**: The `deepsecure agent list` command now exits cleanly with a "No agents found" message instead of an error when the list is empty.
+### Removed
+- **Removed Manual Database Setup**: Removed all instructions for `createdb` and manual `alembic` commands from user-facing documentation, as this is now fully automated.
+- **Removed Redundant Setup Instructions**: Removed duplicate and out-of-sync setup details from the SDK documentation, pointing instead to a single source of truth.
 
-### 📖 Documentation
-- Completely overhauled the `README.md` to improve clarity, structure, and developer onboarding.
-- Added a "Why DeepSecure?" section with "Before" and "After" architecture diagrams to better explain the project's value proposition.
-- Restructured the `Quick Start` guide into a logical, end-to-end workflow for new users.
-- Added detailed "Contributing" and "Community & Support" sections to encourage community engagement.
-- Created a comprehensive `docs/cli_reference.md` and linked it from the `README.md`.
-- Added a "What's Next?" section to guide developers toward more advanced use cases.
+## [0.1.7] - 2025-07-28
 
-### 🗑️ Removed
-- **Legacy Code**: Deleted the entire old `deepsecure/core/` module, which has been fully replaced by the new `_core` architecture.
-- **Redundant Tests**: Removed outdated test files that were replaced by the new, more comprehensive test suite.
+### Added
+- **`CONTRIBUTING.md`**: Created a comprehensive guide for contributors, detailing modern and traditional development setups.
+- **`scripts/setup_dev.sh`**: Added a new development setup script to simplify environment preparation for contributors.
+- **`requirements/` Directory**: Introduced a full `requirements` directory structure (`base.txt`, `dev.txt`, `test.txt`, etc.) for traditional, file-based dependency management.
+- **Optional Dependencies in `pyproject.toml`**: Added modern, optional dependency groups like `[test]`, `[lint]`, `[docs]`, and `[build]` to `pyproject.toml`.
+- **Makefile**: Added a `Makefile` to provide standardized, easy-to-use commands for common development tasks like `make install-dev`, `make test`, and `make build`.
+
+### Changed
+- **Improved Build Script**: Enhanced `./scripts/build_package.sh` to automatically check for and install required build tools like `build` and `twine`.
+- **Modernized `CONTRIBUTING.md`**: Updated the contributing guide to showcase the new, flexible dependency management workflows.
+- **Corrected License Configuration**: Updated `pyproject.toml` to use the modern `license = "Apache-2.0"` SPDX format, resolving deprecation warnings.
+
+### Fixed
+- **`422 Unprocessable Entity` Errors**: Fixed API tests in `credservice/tests/api/v1/test_agents.py` by sending the correct `public_key` payload and using valid base64-encoded keys.
+- **`TypeError` in Client Tests**: Resolved `TypeError: __init__() got an unexpected keyword argument 'backend_url'` in `tests/_core/test_client.py` by using `monkeypatch` to set the environment variable instead.
+- **`409 Conflict` Assertion**: Corrected the expected status code for duplicate agent registration from `400` to `409`.
+- **Pydantic Deprecation Warnings**: Updated `FieldValidationInfo` to the modern `ValidationInfo` in `credservice` schemas to resolve deprecation warnings.
 
 ## [0.1.6] - 2025-06-06
 

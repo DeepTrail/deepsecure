@@ -52,11 +52,20 @@ DeepSecure instantly provides your AI agents with secure identities and short-li
 ---
 
 **Table of Contents**
-- [🤔 Why DeepSecure?](#-why-deepsecure-stop-wrestling-with-auth--secrets)
+- [🤔 Why DeepSecure? (Stop Wrestling with Auth \& Secrets)](#-why-deepsecure-stop-wrestling-with-auth--secrets)
+  - [The Problem: The Mess of Static Keys \& Manual Auth](#the-problem-the-mess-of-static-keys--manual-auth)
+  - [The DeepSecure Way: Identity-as-Code](#the-deepsecure-way-identity-as-code)
 - [⚙️ Getting Started](#️-getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
 - [🚀 Quick Start](#-quick-start)
+  - [1. Start the `credservice` backend](#1-start-the-credservice-backend)
+  - [2. Configure the CLI to connect to your `credservice`](#2-configure-the-cli-to-connect-to-your-credservice)
+  - [3. Store a Secret (via CLI)](#3-store-a-secret-via-cli)
+  - [4. For the AI Agent Developer (Primary Workflow)](#4-for-the-ai-agent-developer-primary-workflow)
+  - [What's Next?](#whats-next)
 - [🤝 Contributing](#-contributing)
-- [🫂 Community & Support](#-community--support)
+- [🫂 Community \& Support](#-community--support)
 - [📜 License](#-license)
 
 ---
@@ -80,26 +89,7 @@ This problem gets exponentially worse as you add more agents and more services. 
 
 Before DeepSecure, agent credentials are a tangled mess. Static, long-lived API keys are often shared between multiple agents and manually embedded in configurations. This is not scalable, creates a high risk of key leakage, and makes auditing nearly impossible.
 
-```mermaid
-graph LR
-    classDef agentNode fill:#2c3e50,stroke:#1a252f,color:#eee,stroke-width:2px,font-size:12px;
-    classDef apiNode fill:#34495e,stroke:#2a3b4d,color:#ddd,stroke-width:2px,font-size:12px;
-
-    subgraph "Before DeepSecure: The Interconnected Mess"
-        Agent1["Feedback<br/>Polling Agent"] -- "passes data" --> Agent2["Sentiment<br/>Analysis Agent"]
-        Agent2 -- "passes data" --> Agent3["Triage &<br/>Alerting Agent"]
-
-        Agent1 -- "uses DB_CONNECTION_STRING" --> ProductionDB["Production DB"]
-        Agent1 -- "uses OPENAI_API_KEY" --> OpenAI["OpenAI API"]
-        Agent2 -- "uses OPENAI_API_KEY" --> OpenAI
-        Agent3 -- "uses OPENAI_API_KEY" --> OpenAI
-        Agent3 -- "uses JIRA_API_TOKEN" --> Jira["Jira API"]
-        Agent3 -- "uses SLACK_BOT_TOKEN" --> Slack["Slack API"]
-        
-        class Agent1,Agent2,Agent3 agentNode;
-        class ProductionDB,OpenAI,Jira,Slack apiNode;
-    end
-```
+![Before DeepSecure - A diagram showing a complex, tangled web of agents sharing static API keys to access various services.](assets/before-deepsecure.svg)
 
 ### The DeepSecure Way: Identity-as-Code
 
@@ -107,52 +97,7 @@ DeepSecure solves this by treating **Identity as Code**. Instead of scattering k
 
 With DeepSecure, each agent has its own identity, fetches its own ephemeral credentials, and access is governed by clear, centralized policies. This is scalable, secure, and fully auditable.
 
-```mermaid
-graph TD
-    classDef agentNode fill:#16a085,stroke:#117a65,color:#fff,stroke-width:2px;
-    classDef clientNode fill:#2980b9,stroke:#216797,color:#fff,stroke-width:2px;
-    classDef serviceNode fill:#34495e,stroke:#2a3b4d,color:#ddd,stroke-width:2px;
-    classDef dataFlow color:black,font-weight:bold;
-
-    subgraph "With DeepSecure: Secure & Decoupled"
-        subgraph "Agent Workflow (Data Passing)"
-            direction LR
-            PollingAgent["Feedback<br/>Polling Agent"] -->|passes data| AnalysisAgent["Sentiment<br/>Analysis Agent"]
-            AnalysisAgent -->|passes data| AlertingAgent["Triage &<br/>Alerting Agent"]
-            class PollingAgent,AnalysisAgent,AlertingAgent agentNode;
-            linkStyle 0,1 dataFlow;
-        end
-
-        subgraph "Secure Credential Fetching (via DeepSecure)"
-            Client["DeepSecure<br/>Client"]
-            class Client clientNode;
-        end
-        
-        subgraph "External Services"
-            direction LR
-            ProductionDB["Production DB"]
-            OpenAI["OpenAI API"]
-            Jira["Jira API"]
-            Slack["Slack API"]
-            class ProductionDB,OpenAI,Jira,Slack serviceNode;
-        end
-
-        PollingAgent -- "requests creds for<br/>DB & OpenAI" --> Client
-        AnalysisAgent -- "requests creds for<br/>OpenAI" --> Client
-        AlertingAgent -- "requests creds for<br/>OpenAI, Jira & Slack" --> Client
-
-        Client -- "issues ephemeral credentials" --> PollingAgent
-        Client -- "issues ephemeral credentials" --> AnalysisAgent
-        Client -- "issues ephemeral credentials" --> AlertingAgent
-
-        PollingAgent -.-> ProductionDB
-        PollingAgent -.-> OpenAI
-        AnalysisAgent -.-> OpenAI
-        AlertingAgent -.-> OpenAI
-        AlertingAgent -.-> Jira
-        AlertingAgent -.-> Slack
-    end
-```
+![With DeepSecure - A clean diagram showing decoupled agents requesting ephemeral credentials from a central DeepSecure client to access services.](assets/after-deepsecure.svg)
 
 ## ⚙️ Getting Started
 
@@ -193,11 +138,11 @@ Before using the SDK or CLI to issue credentials, you need the backend service r
 ### 2. Configure the CLI to connect to your `credservice`
 *(You only need to do this once, or when your `credservice` details change.)*
 ```bash
-# Set the URL of your credservice instance (the default from the Setup Guide is http://localhost:8000)
-deepsecure configure set-url http://localhost:8000
+# Set the URL of your credservice instance
+deepsecure configure set-url http://127.0.0.1:8001
 
-# Securely store your credservice API token
-# When prompted, enter the token (default from Docker Compose: DEFAULT_QUICKSTART_TOKEN)
+# Securely store your credservice API token.
+# When prompted, use the default token for the local setup: DEFAULT_QUICKSTART_TOKEN
 deepsecure configure set-token
 ```
 

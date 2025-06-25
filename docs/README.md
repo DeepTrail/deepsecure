@@ -34,21 +34,11 @@ Install the DeepSecure package:
 pip install deepsecure
 ```
 
-### Backend Setup
+### Credservice Setup
 
-You'll need a running credservice backend. For detailed setup instructions, see our [credservice setup guide](./credservice-setup.md).
+You'll need a running `credservice` backend to use the SDK. For complete, step-by-step instructions on how to run the service locally, please see our comprehensive:
 
-**Quick backend setup:**
-```bash
-# Clone and start the backend
-git clone <your-repo-url>
-cd deepsecure-cli/credservice
-docker-compose up -d
-
-# Configure your environment
-export DEEPSECURE_CREDSERVICE_URL="http://localhost:8000"
-export DEEPSECURE_CREDSERVICE_API_TOKEN="your-api-token"
-```
+➡️ **[Credservice Setup Guide](./credservice-setup.md)**
 
 ## Quick Start Guide
 
