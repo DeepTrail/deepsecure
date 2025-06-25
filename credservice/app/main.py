@@ -7,6 +7,9 @@ import time
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.api.v1.api import api_router
 from app.core.config import settings
+from app.api.deps import DbDep
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import text
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,9 +38,9 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             raise
 
 app = FastAPI(
-    title="DeepSecure Backend API",
+    title=settings.PROJECT_NAME,
     description="API for managing DeepSecure agent credentials and identities.",
-    version="0.1.0"
+    version=settings.PROJECT_VERSION
 )
 
 # Add CORS middleware
@@ -55,14 +58,27 @@ app.add_middleware(LoggingMiddleware)
 # Include the main API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-@app.get("/health", tags=["Health"])
-async def health_check():
-    """Perform a basic health check.
-
-    Returns:
-        dict: A dictionary indicating the service status.
+@app.get("/health", tags=["Health"], response_model=dict)
+async def health_check(db: DbDep):
     """
-    return {"status": "ok"}
+    Perform a detailed health check, including database connectivity.
+    """
+    db_status = "connected"
+    try:
+        # Try to execute a simple query to check DB connection
+        db.execute(text("SELECT 1"))
+    except (SQLAlchemyError, ConnectionRefusedError) as e:
+        logger.error(f"Database health check failed: {e}")
+        db_status = "disconnected"
+
+    return {
+        "service": "DeepSecure CredService",
+        "version": app.version,
+        "status": "ok",
+        "dependencies": {
+            "database": db_status
+        }
+    }
 
 # TODO: Add routers for vault endpoints
 # from app.api.v1 import vault_router
