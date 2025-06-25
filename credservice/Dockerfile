@@ -1,6 +1,9 @@
 # Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
+# Install postgresql-client for pg_isready
+RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
+
 # Set the working directory in the container
 WORKDIR /app
 
@@ -16,6 +19,9 @@ COPY ./alembic ./alembic
 COPY alembic.ini .
 COPY run_service.sh .
 
+# Make the startup script executable
+RUN chmod +x ./run_service.sh
+
 # Make port 8001 available to the world outside this container
 EXPOSE 8001
 
@@ -28,6 +34,6 @@ ENV ALGORITHM="HS256"
 # For easy quickstart, can be overridden in docker-compose.yml
 ENV BACKEND_API_TOKEN="DEFAULT_QUICKSTART_TOKEN"
 
-# Run alembic migrations and then uvicorn server
-# Ensure alembic is in requirements.txt and configured to use DATABASE_URL
-CMD sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8001" 
+# Use the run script as the container's entrypoint. This will automatically
+# run migrations and then start the server.
+CMD ["./run_service.sh"] 
