@@ -3,13 +3,25 @@
 from pydantic_settings import BaseSettings
 import os
 from dotenv import load_dotenv
+import toml
+from pathlib import Path
 
-# Load .env file
+# Load .env file from the credservice directory if it exists
 load_dotenv()
+
+def get_project_version() -> str:
+    """Reads the project version from the root pyproject.toml file."""
+    pyproject_path = Path(__file__).parent.parent.parent.parent / "pyproject.toml"
+    if not pyproject_path.exists():
+        return "0.0.0-dev"  # Fallback for when run in isolation
+    
+    pyproject_data = toml.load(pyproject_path)
+    return pyproject_data.get("project", {}).get("version", "0.0.0-unknown")
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables and .env file."""
-    PROJECT_NAME: str = "DeepSecure Backend"
+    PROJECT_NAME: str = "DeepSecure CredService"
+    PROJECT_VERSION: str = get_project_version()
     API_V1_STR: str = "/api/v1"
 
     # Database
