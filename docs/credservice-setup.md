@@ -27,11 +27,25 @@ Follow these steps from the root of the repository to get the backend service ru
     ```
 
 4.  **Verify the Service is Running**
-    You can check that the service is active by sending a request to its root endpoint.
+    You can check that the service is active by sending a request to its health check endpoint.
     ```bash
-    # You should see a JSON response like {"message": "Welcome to DeepSecure CredService"}
-    curl http://127.0.0.1:8000
+    curl http://127.0.0.1:8001/health
     ```
+
+    You should see a JSON response like this:
+
+    ```json
+    {
+      "service": "DeepSecure CredService",
+      "version": "0.1.0",
+      "status": "ok",
+      "dependencies": {
+        "database": "connected"
+      }
+    }
+    ```
+
+    If you see `curl: (7) Failed to connect to 127.0.0.1 port 8001: Connection refused`, it means the Docker container is not running or has not started properly. Please check the Docker logs.
 
 Your local `credservice` is now running, and your `deepsecure` client is configured to communicate with it. You're ready to develop! For a deeper understanding of how this setup works, please read the guide below.
 
