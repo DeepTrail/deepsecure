@@ -38,9 +38,8 @@ class Agent:
         """
         logger.info(f"Agent '{self.name}' ({self.id}) issuing token for audience '{audience}'.")
         
-        # 1. Load the agent's private key
-        identity = self.client._identity_manager.load_identity(self.id)
-        private_key_b64 = identity.get("private_key")
+        # 1. Load the agent's private key from keychain
+        private_key_b64 = self.client._identity_manager.get_private_key(self.id)
         if not private_key_b64:
             raise IdentityManagerError(f"Could not load private key for agent '{self.name}' to issue token.")
         
@@ -126,10 +125,10 @@ class Client:
 
         Args:
             name: The human-readable name of the agent. This is used to find
-                  the corresponding local identity.
+                  the corresponding agent in the backend.
             auto_create: If True, a new agent identity will be created and
                          registered with the backend if one with the specified
-                         name is not found locally. Defaults to False.
+                         name is not found. Defaults to False.
 
         Returns:
             An `Agent` handle object, which can be used for further operations.
@@ -138,210 +137,259 @@ class Client:
             IdentityManagerError: If the agent is not found and `auto_create` is False.
             DeepSecureClientError: If there is an issue communicating with the backend.
         """
-        # 1. Try to find the agent identity locally by name
-        found_identity = self._identity_manager.find_identity_by_name(name)
-
-        if found_identity:
-            logger.info(f"Found local identity for agent '{name}' with ID: {found_identity['id']}")
-            return Agent(id=found_identity['id'], name=name, client=self)
+        # 1. Try to find the agent in the backend by name
+        try:
+            backend_agents = self._agent_client.list_agents()
+            agents_list = backend_agents.get("agents", []) if isinstance(backend_agents, dict) else backend_agents
+            
+            found_agent = None
+            for agent in agents_list:
+                if agent.get("name") == name:
+                    found_agent = agent
+                    break
+                    
+            if found_agent:
+                agent_id = found_agent['agent_id']
+                logger.info(f"Found backend agent '{name}' with ID: {agent_id}")
+                
+                # 1.1. Verify we have the private key for this agent
+                private_key = self._identity_manager.get_private_key(agent_id)
+                if private_key:
+                    logger.info(f"Agent '{name}' has private key in keychain. Ready to use.")
+                    return Agent(id=agent_id, name=name, client=self)
+                else:
+                    logger.warning(f"Backend agent '{name}' (ID: {agent_id}) found but no private key in keychain.")
+                    if auto_create:
+                        raise DeepSecureClientError(
+                            f"Agent '{name}' exists in backend but private key is missing from keychain. "
+                            f"This indicates a corrupted state. Please delete the backend agent and recreate, "
+                            f"or restore the private key to the keychain."
+                        )
+                    else:
+                        raise DeepSecureClientError(
+                            f"Agent '{name}' exists in backend but private key is missing from keychain. "
+                            f"Use `auto_create=True` to handle this, or manually fix the keychain."
+                        )
+            else:
+                logger.info(f"No backend agent found with name '{name}'.")
+                
+        except Exception as e:
+            logger.error(f"Failed to search for agent '{name}' in backend: {e}")
+            if not auto_create:
+                raise DeepSecureClientError(f"Failed to search for agent '{name}' in backend: {e}") from e
 
         # 2. If not found, decide whether to create it
         if not auto_create:
-            raise IdentityManagerError(f"No local agent identity found for name '{name}'. Use `auto_create=True` to create one.")
+            raise IdentityManagerError(f"No backend agent found for name '{name}'. Use `auto_create=True` to create one.")
         
-        logger.info(f"No local identity for '{name}' found. Creating a new one with `auto_create=True`...")
+        logger.info(f"No backend agent for '{name}' found. Creating a new one with `auto_create=True`...")
         
-        # 3. Create the new identity (generates keys)
-        new_identity = self._identity_manager.create_identity(name=name)
-        agent_id = new_identity['id']
-        public_key = new_identity['public_key']
+        # 3. Create new agent with backend-first approach
+        # 3.1. Generate a temporary agent ID for key generation
+        temp_agent_id = self._identity_manager._generate_agent_id()
         
-        logger.info(f"New local identity created for '{name}' (ID: {agent_id}). Registering with backend...")
+        # 3.2. Generate keypair
+        keypair = self._identity_manager.create_keypair_for_agent(temp_agent_id)
+        public_key = keypair["public_key"]
         
-        # 4. Register the new public key with the backend
+        # 3.3. Register with backend (backend may assign a different agent_id)
         try:
             reg_response = self._agent_client.register_agent(
                 public_key=public_key,
                 name=name,
-                description=f"Automatically created by DeepSecure SDK.",
-                agent_id=agent_id
+                description=f"Auto-created by DeepSecure SDK for application use."
             )
-            # The backend should return the same agent_id we just created locally
             backend_agent_id = reg_response.get("agent_id")
-            if backend_agent_id != agent_id:
-                # This would be a very unusual and serious error state
-                logger.error(
-                    f"Mismatch between locally generated agent ID ({agent_id}) and backend registered ID ({backend_agent_id}). "
-                    "Local keys will be purged to prevent inconsistent state."
-                )
-                self._identity_manager.delete_identity(agent_id)
-                raise DeepSecureClientError("Failed to create agent due to backend ID mismatch. Please try again.")
+            if not backend_agent_id:
+                raise DeepSecureClientError("Backend registration failed - no agent_id returned.")
+                
+            logger.info(f"Successfully registered new agent '{name}' with backend. Agent ID: {backend_agent_id}")
             
-            logger.info(f"Successfully registered new agent '{name}' with backend. ID: {agent_id}")
+            # 3.4. If backend assigned a different ID, we need to move the private key
+            if backend_agent_id != temp_agent_id:
+                logger.info(f"Backend assigned different agent ID ({backend_agent_id}) than temporary ({temp_agent_id}). Moving private key.")
+                
+                # Get the private key from temp location
+                temp_private_key = self._identity_manager.get_private_key(temp_agent_id)
+                if temp_private_key:
+                    # Store it under the correct agent ID
+                    self._identity_manager.store_private_key_directly(backend_agent_id, temp_private_key)
+                    # Clean up the temporary entry
+                    self._identity_manager.delete_private_key(temp_agent_id)
+                else:
+                    raise DeepSecureClientError("Failed to retrieve temporary private key during agent ID migration.")
+            
+            return Agent(id=backend_agent_id, name=name, client=self)
             
         except Exception as e:
-            # If backend registration fails, we must clean up the local keys
-            logger.error(f"Failed to register new agent '{name}' with backend. Purging local keys to prevent orphan identity. Error: {e}")
-            self._identity_manager.delete_identity(agent_id)
-            raise DeepSecureClientError(f"Failed to register new agent with backend: {e}") from e
-            
-        return Agent(id=agent_id, name=name, client=self)
+            logger.error(f"Failed to register new agent '{name}' with backend: {e}")
+            # Clean up the temporary keypair
+            self._identity_manager.delete_private_key(temp_agent_id)
+            raise DeepSecureClientError(f"Failed to register new agent '{name}' with backend: {e}") from e
 
     def with_agent(self, name: str, auto_create: bool = False) -> Client:
         """
-        Creates a new client instance scoped to a specific agent.
-
-        This is useful for dependency injection, allowing you to pass a pre-configured,
-        agent-specific client to tools or functions.
-
-        Args:
-            name: The name of the agent to scope the client to.
-            auto_create: If True, create the agent if it does not exist.
-
-        Returns:
-            A new `Client` instance that will automatically use the specified
-            agent for operations like `get_secret`.
-        """
-        agent_handle = self.agent(name, auto_create=auto_create)
+        Creates a new client instance with a specific agent context.
         
-        # Create a new client instance with the same config but with agent context
+        This is useful for multi-agent scenarios where different parts of your
+        code need to operate as different agents.
+        
+        Args:
+            name: The name of the agent to use as context for this client.
+            auto_create: Whether to create the agent if it doesn't exist.
+            
+        Returns:
+            A new Client instance with the specified agent as context.
+        """
+        agent = self.agent(name, auto_create=auto_create)
+        
+        # Create a new client with the same configuration but different agent context
         new_client = Client(
             base_url=self.base_url,
             api_token=self.api_token,
-            _agent_context=agent_handle
+            _agent_context=agent
         )
+        
         return new_client
 
     def get_secret(self, name: str, agent_name: Optional[str] = None, ttl: str = "5m") -> Secret:
         """
-        Fetches a secret from the vault for a specific agent.
-
-        This is the primary method for securely retrieving operational secrets
-        like API keys, database passwords, etc.
-
+        Fetches a secret from the DeepSecure vault.
+        
         Args:
-            name: The name of the secret to retrieve (e.g., "OPENAI_API_KEY").
-            agent_name: The name of the agent identity to use for the request.
-                        If the client was created using `with_agent()`, this is
-                        not required.
-            ttl: The requested Time-To-Live for the ephemeral credential that
-                 will be used to fetch the secret (e.g., "5m", "1h").
-
+            name: The name of the secret to fetch.
+            agent_name: The name of the agent to use for this request. If not provided,
+                       uses the agent context from `with_agent()` or raises an error.
+            ttl: Time-to-live for the credential (e.g., "5m", "1h", "30s").
+            
         Returns:
-            A `Secret` object containing the value and metadata.
-
+            A Secret object containing the secret value and metadata.
+            
         Raises:
-            DeepSecureClientError: If the API call fails or `agent_name` is not provided.
+            DeepSecureClientError: If no agent context is available or if the secret fetch fails.
         """
+        # Determine which agent to use
         if agent_name:
-            agent_handle = self.agent(agent_name, auto_create=False)
+            agent = self.agent(agent_name, auto_create=False)
         elif self._agent_context:
-            agent_handle = self._agent_context
+            agent = self._agent_context
         else:
             raise DeepSecureClientError(
-                "No agent specified. Call `get_secret` with an `agent_name` or "
-                "create an agent-specific client using `client.with_agent('my-agent')`."
+                "No agent specified. Either provide `agent_name` or use `client.with_agent(name)` "
+                "to set an agent context."
             )
-
-        # 1. Get the agent handle, which ensures the identity exists
-        # agent_handle = self.agent(agent_name, auto_create=False)
         
-        # 2. Issue a short-lived credential for the specific scope of this secret
-        # The scope is constructed as `secret:<name>`
-        scope = f"secret:{name}"
+        logger.info(f"Agent '{agent.name}' ({agent.id}) fetching secret '{name}' with TTL '{ttl}'")
         
-        # We need the agent's ID for the credential request
-        agent_id = agent_handle.id
-        
-        # 3. Request an ephemeral credential (token) from the Vault client
+        # Issue a credential for this secret
         try:
-            # Note: We call the issue method, not issue_credential
-            cred_response = self._vault_client.issue(
-                scope=scope, 
-                agent_id=agent_id,
-                ttl_seconds=parse_ttl_to_seconds(ttl)
+            response = self._vault_client.issue(
+                scope=name,
+                agent_id=agent.id,
+                ttl=parse_ttl_to_seconds(ttl)
             )
+            
+            # Create and return the Secret object
+            secret = Secret(
+                name=name,
+                expires_at=response.expires_at,
+                _value=response.secret_value or ''
+            )
+            
+            logger.info(f"Successfully fetched secret '{name}' for agent '{agent.name}'")
+            return secret
+            
         except Exception as e:
-            raise DeepSecureClientError(f"Failed to issue ephemeral credential for agent '{agent_name or agent_handle.name}' to get secret '{name}': {e}") from e
+            logger.error(f"Failed to fetch secret '{name}' for agent '{agent.name}': {e}")
+            raise DeepSecureClientError(f"Failed to fetch secret '{name}': {e}") from e
 
-        # This part is a temporary workaround until the vault service is updated
-        # to return the secret value directly in the credential response.
-        if not hasattr(cred_response, 'secret_value'):
-            logger.warning("CredentialResponse does not contain 'secret_value'. Using dummy value.")
-            secret_value = "dummy-secret-value-from-sdk"
-        else:
-            secret_value = cred_response.secret_value
-
-        return Secret(
-            name=name,
-            _value=secret_value,
-            expires_at=cred_response.expires_at,
-        )
+    @property
+    def vault(self):
+        """Access to vault operations."""
+        return self._vault_client
 
     def list_agents(self) -> list[dict]:
-        """Lists all agents registered with the backend service."""
+        """
+        Lists all agents from the backend.
+        
+        Returns:
+            List of agent dictionaries from the backend.
+        """
         try:
-            return self._agent_client.list_agents()
+            response = self._agent_client.list_agents()
+            return response.get("agents", []) if isinstance(response, dict) else response
         except Exception as e:
-            raise DeepSecureClientError(f"Failed to list agents from backend: {e}") from e
+            logger.error(f"Failed to list agents: {e}")
+            raise DeepSecureClientError(f"Failed to list agents: {e}") from e
 
     def describe_agent(self, agent_id: str) -> Optional[dict]:
         """
-        Retrieves the full details of a specific agent from the backend.
-
+        Gets detailed information about a specific agent from the backend.
+        
         Args:
-            agent_id: The unique identifier of the agent.
-
+            agent_id: The ID of the agent to describe.
+            
         Returns:
-            A dictionary containing the agent's details, or None if not found.
+            Agent information dictionary or None if not found.
         """
         try:
-            return self._agent_client.describe_agent(agent_id=agent_id)
+            return self._agent_client.describe_agent(agent_id)
         except Exception as e:
-            # Specifically handle not found cases if the core client raises them
-            # For now, wrap generic exceptions.
-            raise DeepSecureClientError(f"Failed to describe agent '{agent_id}': {e}") from e
+            logger.error(f"Failed to describe agent {agent_id}: {e}")
+            raise DeepSecureClientError(f"Failed to describe agent {agent_id}: {e}") from e
 
     def delete_agent(self, agent_id: str):
         """
-        Deactivates an agent from the backend and purges its local identity.
-
-        This is a destructive operation.
-
+        Deletes an agent from both backend and local keychain.
+        
         Args:
-            agent_id: The unique identifier of the agent to delete.
+            agent_id: The ID of the agent to delete.
         """
         try:
-            # 1. Deactivate from backend first
-            self._agent_client.delete_agent(agent_id=agent_id)
-            logger.info(f"Successfully deactivated agent '{agent_id}' on the backend.")
+            # Delete from backend first
+            self._agent_client.delete_agent(agent_id)
+            logger.info(f"Successfully deleted agent {agent_id} from backend")
+            
+            # Then delete private key from keychain
+            self._identity_manager.delete_private_key(agent_id)
+            logger.info(f"Successfully deleted private key for agent {agent_id} from keychain")
+            
         except Exception as e:
-            # We might want to allow purging local keys even if backend fails.
-            # For now, we'll raise and stop.
-            raise DeepSecureClientError(f"Failed to delete agent '{agent_id}' from backend. Local keys have not been purged. Error: {e}") from e
-
-        try:
-            # 2. Purge local identity
-            self._identity_manager.delete_identity(agent_id)
-            logger.info(f"Successfully purged local identity for '{agent_id}'.")
-        except Exception as e:
-            # If this fails, the user is in an inconsistent state.
-            # The backend agent is gone, but local keys remain.
-            raise DeepSecureClientError(
-                f"Agent '{agent_id}' was deleted from the backend, but failed to purge local keys. "
-                f"Please manually remove the identity file from ~/.deepsecure/identities/. Error: {e}"
-            ) from e
+            logger.error(f"Failed to delete agent {agent_id}: {e}")
+            raise DeepSecureClientError(f"Failed to delete agent {agent_id}: {e}") from e
 
     def store_secret(self, name: str, value: str):
         """
         Stores a secret in the vault.
-
-        This is an administrative action and is typically used for setup or testing.
-
+        
         Args:
-            name: The name of the secret to store.
-            value: The value of the secret.
+            name: The name of the secret.
+            value: The secret value to store.
         """
-        logger.info(f"Storing secret '{name}' in vault.")
-        self._vault_client.store_secret(name=name, value=value)
-        logger.info(f"Secret '{name}' stored successfully.") 
+        try:
+            self._vault_client.store_secret(name, value)
+            logger.info(f"Successfully stored secret '{name}'")
+        except Exception as e:
+            logger.error(f"Failed to store secret '{name}': {e}")
+            raise DeepSecureClientError(f"Failed to store secret '{name}': {e}") from e
+
+    def get_secret_direct(self, name: str) -> dict:
+        """
+        Retrieves a secret directly from the vault without requiring an agent.
+        
+        This method is intended for CLI/administrative use and bypasses the ephemeral
+        credential system. For programmatic agent access, use get_secret() instead.
+        
+        Args:
+            name: The name of the secret to retrieve.
+            
+        Returns:
+            A dictionary containing the secret data (name, value, created_at).
+        """
+        try:
+            secret_data = self._vault_client.get_secret_direct(name)
+            logger.info(f"Successfully retrieved secret '{name}' directly")
+            return secret_data
+        except Exception as e:
+            logger.error(f"Failed to retrieve secret '{name}': {e}")
+            raise DeepSecureClientError(f"Failed to retrieve secret '{name}': {e}") from e 

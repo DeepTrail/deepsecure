@@ -3,19 +3,29 @@
 This example demonstrates how to build secure, fine-grained tools for LangChain
 agents using the DeepSecure SDK.
 
-It showcases the "Tool Factory" and "Dependency Injection" patterns, where each
-tool is created with an agent-specific DeepSecure client context. This ensures
-that each tool can only access the secrets its designated agent is authorized for,
-enforcing the Principle of Least Privilege.
+🚨 **IMPORTANT - FUTURE FUNCTIONALITY DEMONSTRATION**
+This example showcases the PLANNED fine-grained policy system where each 
+agent can have different security policies and access only to the secrets 
+they need. This requires the `deepsecure policy create` command to be 
+implemented first.
 
-**Scenario:**
+**Current Status**: This example will NOT work until the policy management
+system is fully implemented. For a working LangChain example, see:
+`06_langchain_secure_tools_without_finegrain_control.py`
+
+**Future Vision**: It showcases the "Tool Factory" and "Dependency Injection" 
+patterns, where each tool is created with an agent-specific DeepSecure client 
+context. This ensures that each tool can only access the secrets its designated 
+agent is authorized for, enforcing the Principle of Least Privilege.
+
+**Planned Scenario:**
 - We have two agents: a "researcher" and a "writer".
 - The "researcher" needs access to a search tool that uses a Tavily API key.
 - The "writer" needs access to a publishing tool that uses a Notion API key.
 - We will create policies ensuring the researcher can ONLY access the Tavily key,
   and the writer can ONLY access the Notion key.
 
-**To Run This Example:**
+**To Run This Example (when implemented):**
 1. Make sure the `credservice` backend is running.
 2. Set up the necessary agents and policies using the DeepSecure CLI:
    ```bash

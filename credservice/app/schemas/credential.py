@@ -66,6 +66,7 @@ class CredentialIssueResponse(CredentialBase):
     expires_at: datetime
     status: str
     origin_context: Optional[Dict[str, Any]] = Field(None, description="Context of the request origin, if provided and processed.")
+    secret_value: Optional[str] = Field(None, description="The secret value if this credential was issued for secret access.")
 
     model_config = {
         "from_attributes": True

@@ -3,10 +3,22 @@
 This example demonstrates how to securely integrate DeepSecure with CrewAI
 using a "Tool Factory" pattern with dependency injection.
 
-This pattern ensures that each agent in a crew can be given tools that
-are securely scoped to its specific identity.
+🚨 **IMPORTANT - FUTURE FUNCTIONALITY DEMONSTRATION**
+This example showcases the PLANNED fine-grained policy system where each 
+agent can have different security policies and access only to the secrets 
+they need. This requires the `deepsecure policy create` command to be 
+implemented first.
 
-Prerequisites:
+**Current Status**: This example will NOT work until the policy management
+system is fully implemented. For a working CrewAI example, see:
+`04_crewai_secure_tools_without_finegrain_control.py`
+
+**Future Vision**: Policies will be defined using commands like:
+- `deepsecure policy create researcher-policy --allow-secrets tavily_api_key`
+- `deepsecure policy create writer-policy --allow-secrets notion_api_key`
+- `deepsecure agent create researcher --policy researcher-policy`
+
+Prerequisites (when implemented):
 1. `pip install 'deepsecure[frameworks]'` (to install crewai)
 2. A running DeepSecure `credservice` backend.
 3. Your DeepSecure CLI is configured (`deepsecure configure`).

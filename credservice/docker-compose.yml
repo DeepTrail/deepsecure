@@ -38,6 +38,8 @@ services:
       # Other app settings
       - ALGORITHM=HS256
       - POSTGRES_DRIVER=psycopg2
+      # Pass the current DeepSecure version to the container
+      - DEEPSECURE_VERSION=0.1.9
       
     volumes:
       # Mount the policies file into the container to make it accessible to the service.

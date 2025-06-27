@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deepsecure"
-version = "0.1.8"
+version = "0.1.9"
 authors = [
   { name="DeepSecure Team", email="mahendra@deeptrail.com" },
 ]
@@ -44,6 +44,8 @@ dev = [
 ]
 frameworks = [
     "crewai",
+    "langchain>=0.1.0",
+    "langchain-community>=0.0.10",
     "fastapi",
     "uvicorn",
 ]
@@ -94,7 +96,7 @@ all-dev = [
 [project.urls]
 "Homepage" = "https://github.com/DeepTrail/deepsecure"
 "Bug Tracker" = "https://github.com/DeepTrail/deepsecure/issues"
-"Documentation" = "https://deepsecure.dev/docs"
+"Documentation" = "https://github.com/DeepTrail/deepsecure/"
 
 [project.scripts]
 deepsecure = "deepsecure.main:app"

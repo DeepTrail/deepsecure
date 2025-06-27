@@ -35,34 +35,56 @@ def store(
 @app.command("get-secret")
 def get_secret(
     name: str = typer.Argument(..., help="The name of the secret to retrieve (e.g., 'DATABASE_URL')."),
-    agent_name: str = typer.Option(..., "--agent-name", "-a", help="The name of the agent identity to use for the request."),
-    output: str = typer.Option("text", "--output", "-o", help="Output format (`text` or `json`).", case_sensitive=False),
+    output: str = typer.Option("table", "--output", "-o", help="Output format (`table` or `json`).", case_sensitive=False),
 ):
     """
-    Fetches a secret from the vault for a specific agent.
+    Retrieves a secret from the vault.
     
-    This command uses the specified agent's identity to securely retrieve the
-    secret's value. The value is printed to standard output.
+    This command provides direct access to stored secrets for administrative and CLI use.
+    The secret value is retrieved without requiring an agent identity.
     """
     try:
         is_json_output = output.lower() == "json"
         
         client = deepsecure.Client()
         if not is_json_output:
-            cli_utils.console.print(f"Fetching secret '{name}' for agent '{agent_name}'...")
+            cli_utils.console.print(f"Retrieving secret '{name}'...")
         
-        secret = client.get_secret(name=name, agent_name=agent_name)
+        secret_data = client.get_secret_direct(name)
         
         if is_json_output:
-            output_data = {
-                "name": secret.name,
-                "value": secret.value,
-                "expires_at": secret.expires_at.isoformat(),
-            }
-            cli_utils.print_json(output_data)
+            cli_utils.print_json(secret_data)
         else:
-            # By default, just print the value for easy use in scripts
-            print(secret.value)
+            # Display using Rich table (same as agent list command)
+            from datetime import datetime
+            from rich.table import Table
+            
+            # Parse the created_at timestamp for better display
+            created_at = secret_data.get("created_at", "")
+            if created_at:
+                try:
+                    # Parse ISO format timestamp and make it more readable
+                    dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    formatted_date = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+                except:
+                    formatted_date = created_at
+            else:
+                formatted_date = "Unknown"
+            
+            # Create Rich table (same style as agent list)
+            table = Table(title="Secret Information", show_lines=True)
+            table.add_column("Name", style="cyan", no_wrap=True)
+            table.add_column("Value", style="magenta")
+            table.add_column("Created At", style="dim", overflow="fold")
+            
+            # Add the secret data as a row
+            table.add_row(
+                secret_data.get('name', 'N/A'),
+                secret_data.get('value', 'N/A'),
+                formatted_date
+            )
+            
+            cli_utils.console.print(table)
             
     except DeepSecureError as e:
         cli_utils.print_error(f"Failed to get secret: {e}")

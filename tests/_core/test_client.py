@@ -52,13 +52,9 @@ def test_vault_client_issue_credential_success(core_vault_client, mock_base_requ
         "status": "issued"
     }
 
-    # Mock the identity manager to return a valid identity
-    with patch('deepsecure._core.client.identity_manager.load_identity') as mock_load_identity:
-        mock_load_identity.return_value = {
-            "id": "agent-123",
-            "public_key": "mock_public_key",
-            "private_key": MOCK_PRIVATE_KEY_B64
-        }
+    # Mock the identity manager to return a valid private key
+    with patch('deepsecure._core.client.identity_manager.get_private_key') as mock_get_private_key:
+        mock_get_private_key.return_value = MOCK_PRIVATE_KEY_B64
 
         # Note: The `issue` method constructs the request internally now
         cred_response = core_vault_client.issue(
@@ -79,7 +75,7 @@ def test_vault_client_http_error(core_vault_client, mock_base_request):
 
     with pytest.raises(ApiError, match="API Error 401: Invalid token"):
         # We still need to mock the identity to get past the first check
-        with patch('deepsecure._core.client.identity_manager.load_identity', return_value={"private_key": MOCK_PRIVATE_KEY_B64}):
+        with patch('deepsecure._core.client.identity_manager.get_private_key', return_value=MOCK_PRIVATE_KEY_B64):
             core_vault_client.issue(scope="secret:my_secret", agent_id="agent-123")
 
 # --- CoreAgentClient Tests ---
