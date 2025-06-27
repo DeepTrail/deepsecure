@@ -102,10 +102,9 @@ class VaultClient(base_client.BaseClient):
         # print("\nDEBUG [VaultClient in client.py]: TOP OF issue METHOD REACHED\n", file=sys.stderr)
         logger.info(f"[VaultClient(client.py).issue] Attempting for agent: {agent_id}, scope: {scope}, ttl: {ttl}s")
         
-        local_agent_identity = identity_manager.load_identity(agent_id)
-        if not local_agent_identity: raise DeepSecureClientError(f"Local identity for {agent_id} not found.")
-        agent_private_key_b64 = local_agent_identity.get("private_key")
-        if not agent_private_key_b64: raise DeepSecureClientError(f"Private key for {agent_id} not in loaded identity.")
+        agent_private_key_b64 = identity_manager.get_private_key(agent_id)
+        if not agent_private_key_b64: 
+            raise DeepSecureClientError(f"Private key for agent {agent_id} not found in keychain.")
         
         ephemeral_keys = _generate_ephemeral_keys()
         ephemeral_public_key_to_send_b64 = ephemeral_keys.public_key_b64
@@ -158,12 +157,13 @@ class VaultClient(base_client.BaseClient):
         
         try:
             server_response_base = client_main_schemas.CredentialBase.model_validate(server_response_dict)
-            # Add a dummy secret_value for the time being, to be removed later
+            # Extract secret_value from the server response if present
+            secret_value = server_response_dict.get("secret_value", "dummy_secret_value_for_testing")
             final_response = client_main_schemas.CredentialResponse(
                 **server_response_base.model_dump(), 
                 ephemeral_public_key_b64=ephemeral_public_key_to_send_b64, 
                 ephemeral_private_key_b64=ephemeral_private_key_to_return_b64,
-                secret_value="dummy_secret_value_for_testing" # Placeholder
+                secret_value=secret_value
             )
         except PydanticValidationError as e: raise DeepSecureClientError(f"Client-side: Failed to construct final CredentialResponse: {e}") from e
         
@@ -221,6 +221,33 @@ class VaultClient(base_client.BaseClient):
         )
         return response_dict
 
+    def get_secret_direct(self, name: str) -> Dict[str, Any]:
+        """Retrieves a secret directly from the backend vault without requiring an agent.
+        
+        This method is intended for CLI/administrative use and bypasses the ephemeral
+        credential system. For programmatic agent access, use the issue() method instead.
+        
+        Args:
+            name: The name of the secret to retrieve.
+            
+        Returns:
+            A dictionary containing the secret data (name, value, created_at).
+            
+        Raises:
+            DeepSecureClientError: If the secret is not found or retrieval fails.
+        """
+        logger.info(f"Retrieving secret directly with name: {name}")
+        try:
+            response_dict = self._request(
+                method="GET",
+                path=f"/api/v1/vault/secrets/{name}",
+                is_backend_request=True,
+            )
+            return response_dict
+        except Exception as e:
+            logger.error(f"Failed to retrieve secret {name}: {e}")
+            raise DeepSecureClientError(f"Failed to retrieve secret '{name}': {e}") from e
+
 client = VaultClient()
 
 if __name__ == "__main__":
@@ -251,12 +278,9 @@ if __name__ == "__main__":
         if not test_agent_id_for_run:
             raise Exception("Failed to get agent_id from backend registration during setup.")
         
-        identity_manager.persist_generated_identity(
+        identity_manager.store_private_key_directly(
             agent_id=test_agent_id_for_run,
-            public_key_b64=temp_keys_for_setup["public_key"],
-            private_key_b64=temp_keys_for_setup["private_key"],
-            name=test_agent_name,
-            created_at_timestamp=int(time.time())
+            private_key_b64=temp_keys_for_setup["private_key"]
         )
         print(f"[SETUP] Successfully registered and locally persisted agent: {test_agent_id_for_run} (Name: {test_agent_name})")
 

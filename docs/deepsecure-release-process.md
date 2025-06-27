@@ -8,7 +8,7 @@ This phase involves updating all version numbers and summarizing the work includ
 
 ### 1. Update Version Number
 
-The project version must be updated in two key locations to ensure consistency. Replace `X.Y.Z` with the new version number (e.g., `0.1.8`).
+The project version must be updated in three key locations to ensure consistency. Replace `X.Y.Z` with the new version number (e.g., `0.1.9`).
 
 -   **`pyproject.toml`**: Update the `version` key in the `[project]` table.
     ```toml
@@ -19,6 +19,11 @@ The project version must be updated in two key locations to ensure consistency. 
 -   **`deepsecure/__init__.py`**: Update the `__version__` dunder variable.
     ```python
     __version__ = "X.Y.Z" # <-- UPDATE THIS
+    ```
+-   **`credservice/docker-compose.yml`**: Update the `DEEPSECURE_VERSION` environment variable.
+    ```yaml
+    environment:
+      - DEEPSECURE_VERSION=X.Y.Z # <-- UPDATE THIS
     ```
 
 ### 2. Update Changelog
@@ -33,7 +38,21 @@ Document the changes for the new release in the `CHANGELOG.md` file.
 
 This phase ensures the release is stable, functional, and that the documentation accurately reflects the product.
 
-### 1. Automated Testing
+### 1. Reinstall Package in Development Mode
+
+After updating version numbers, reinstall the package to ensure the development environment matches the source code version.
+
+```bash
+# Reinstall the package in development mode to sync versions
+pip install -e .
+```
+
+This step is critical because:
+- It ensures the installed package version matches the source code version
+- It prevents version mismatch errors during testing
+- It updates the package metadata that tests may check
+
+### 2. Automated Testing
 
 Run the complete automated test suite to check for any regressions or new bugs.
 
@@ -47,7 +66,7 @@ python -m pytest
 ```
 Ensure all tests pass before proceeding.
 
-### 2. End-to-End Documentation-Led Testing
+### 3. End-to-End Documentation-Led Testing
 
 This is a critical manual validation step. Perform the exact steps a new user would take, following only the official documentation.
 
@@ -73,15 +92,15 @@ docker compose -f credservice/docker-compose.yml down --volumes
         - Ensuring `deepsecure vault store` and other commands work as expected against the running service.
 
 -   **[ ] Workflow 3: Run Example Scripts**
-    1.  Execute the key example scripts from the `examples/` directory to validate the Python SDK.
+    1.  Execute the automated example test suite to validate all Python SDK examples:
         ```bash
-        python examples/01_create_agent_and_issue_credential.py
-        python examples/02_sdk_secret_fetch.py
-        python examples/03_crewai_secure_tools.py
-        python examples/04_multi_agent_communication.py
-        python examples/05_langchain_secure_tools.py
+        # Run all example tests with proper environment setup
+        DEEPSECURE_CREDSERVICE_URL=http://127.0.0.1:8001 \
+        DEEPSECURE_CREDSERVICE_API_TOKEN=DEFAULT_QUICKSTART_TOKEN \
+        python -m pytest tests/test_examples.py -v -m e2e
         ```
-    2.  Confirm they run without errors and produce the expected output.
+    2.  Confirm all 7 examples pass without errors and produce expected output.
+    3.  Review any skipped tests and ensure they're intentionally skipped (e.g., missing dependencies).
 
 ## Phase 3: Git and Build Workflow
 

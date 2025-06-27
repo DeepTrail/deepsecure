@@ -1,11 +1,14 @@
 # deepsecure/commands/agent.py
 import typer
-from typing import Optional
+from typing import Optional, List
 import logging
 from typer.core import TyperGroup
+from pathlib import Path
 
 from .. import utils
+from ..utils import get_client
 import deepsecure
+from .._core.identity_manager import identity_manager
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +70,7 @@ def list_agents(
 
         if not agents:
             utils.console.print("No agents found.")
-            raise typer.Exit()
+            return
 
         if output.lower() == "json":
             utils.print_json(agents)
@@ -126,7 +129,7 @@ def describe_agent(
             if agent.get('description'):
                 utils.console.print(f"  Description: {agent.get('description')}")
             utils.console.print(f"  Status: {agent.get('status')}")
-            utils.console.print(f"  Public Key: {agent.get('public_key')}")
+            utils.console.print(f"  Public Key: {agent.get('public_key') or agent.get('publicKey', 'N/A')}")
             utils.console.print(f"  Created At: {agent.get('created_at')}")
 
     except deepsecure.DeepSecureError as e:
@@ -167,4 +170,99 @@ def delete_agent(
         raise typer.Exit(code=1)
     except Exception as e:
         utils.print_error(f"An unexpected error occurred during deletion: {e}")
+        raise typer.Exit(code=1)
+
+# --- Cleanup Command ---
+@app.command("cleanup")
+def cleanup_agents():
+    """Show agent status and provide guidance for keychain cleanup.
+    
+    This command displays all backend agents and their corresponding private keys,
+    then provides manual guidance for cleaning up orphaned keychain entries.
+    
+    Note: Due to macOS security restrictions, automated keychain cleanup is not
+    possible. Manual cleanup through Keychain Access is required.
+    """
+    try:
+        client = get_client()
+        
+        # Get all agents from backend
+        agents = client.list_agents()
+        
+        if not agents:
+            utils.console.print("No agents found in backend.")
+            return
+        
+        # Check keychain for each agent
+        from deepsecure._core.identity_manager import IdentityManager
+        identity_mgr = IdentityManager()  # Keep verbose output - it's helpful!
+        
+        # Build agent status table
+        table_data = []
+        agents_with_keys = 0
+        
+        for agent in agents:
+            agent_id = agent.get('agent_id', agent.get('id', 'unknown'))
+            agent_name = agent.get('name', 'Unknown')
+            
+            # Extract prefix from agent_id (e.g., agent-558ad262-... => 558ad262)
+            if agent_id.startswith('agent-') and len(agent_id) > 6:
+                prefix = agent_id.split('-')[1][:8]  # First 8 chars after 'agent-'
+            else:
+                prefix = 'unknown'
+            
+            # Check if private key exists in keychain
+            try:
+                private_key = identity_mgr.get_private_key(agent_id)
+                if private_key:
+                    key_status = "✓ Present"
+                    agents_with_keys += 1
+                else:
+                    key_status = "✗ Missing"
+            except Exception:
+                key_status = "✗ Missing"
+            
+            table_data.append([
+                agent_id,
+                agent_name,
+                prefix, 
+                key_status
+            ])
+        
+        # Display summary
+        utils.console.print(f"\n📊 Agent Status Summary")
+        utils.console.print(f"Backend agents: {len(agents)}")
+        utils.console.print(f"Agents with private keys: {agents_with_keys}")
+        utils.console.print(f"Agents missing private keys: {len(agents) - agents_with_keys}")
+        
+        # Display table
+        utils.console.print(f"\n📋 Agent-to-Key Relationship")
+        utils.console.print("=" * 100)
+        utils.console.print(f"{'Agent ID':<36} {'Agent Name':<20} {'Prefix':<12} {'Private Key Status'}")
+        utils.console.print("-" * 100)
+        
+        for row in table_data:
+            # Truncate agent name if too long
+            agent_name = row[1][:19] + "…" if len(row[1]) > 20 else row[1]
+            utils.console.print(f"{row[0]:<36} {agent_name:<20} {row[2]:<12} {row[3]}")
+        
+        # Provide manual cleanup guidance
+        utils.console.print(f"\n🧹 Manual Keychain Cleanup")
+        utils.console.print("=" * 50)
+        utils.console.print("Due to macOS security restrictions, keychain cleanup must be done manually.")
+        utils.console.print("")
+        utils.console.print("To clean up orphaned keychain entries:")
+        utils.console.print("1. Open 'Keychain Access' application")
+        utils.console.print("2. Search for 'deepsecure_agent'")
+        utils.console.print("3. Review the entries against the table above")
+        utils.console.print("4. Delete any entries that don't match current backend agents")
+        utils.console.print("")
+        utils.console.print("Expected keychain entry format:")
+        utils.console.print("  Account: deepsecure_agent-{prefix}_private_key")
+        utils.console.print("  Where: deepsecure_agent-{prefix}_private_key")
+        utils.console.print("")
+        utils.console.print("💡 Tip: Keep entries that match the 'Prefix' column above")
+        
+    except Exception as e:
+        utils.console.print(f"Error during cleanup: {e}", err=True)
         raise typer.Exit(code=1) 

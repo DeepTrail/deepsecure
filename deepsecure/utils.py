@@ -224,4 +224,18 @@ def parse_ttl_to_seconds(ttl_str: str) -> int:
     
     return int(total_seconds)
 
+def get_client():
+    """
+    Creates and returns a DeepSecure client instance.
+    
+    This is a convenience function for commands that need a client.
+    It handles the import and instantiation in one place.
+    
+    Returns:
+        A configured DeepSecure Client instance.
+    """
+    # Import here to avoid circular imports
+    from .client import Client
+    return Client()
+
 # TODO: Add more utility functions as needed (e.g., table rendering, file handling). 

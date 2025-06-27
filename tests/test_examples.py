@@ -9,13 +9,15 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 
 # List of example scripts to be tested
-# We can add to this list as more examples are created.
+# All 7 examples from the examples/ directory
 EXAMPLE_SCRIPTS = [
     "examples/01_create_agent_and_issue_credential.py",
     "examples/02_sdk_secret_fetch.py",
-    "examples.03_crewai_secure_tools.py", # This will be skipped if dependencies are not met
-    "examples/04_multi_agent_communication.py",
+    "examples/03_crewai_secure_tools.py",
+    "examples/04_crewai_secure_tools_without_finegrain_control.py",
     "examples/05_langchain_secure_tools.py",
+    "examples/06_langchain_secure_tools_without_finegrain_control.py",
+    "examples/07_multi_agent_communication.py",
 ]
 
 # Helper to check if an example script exists
@@ -26,15 +28,58 @@ def script_path(script_name):
 @pytest.fixture(scope="module")
 def e2e_environment_is_ready():
     """
-    A fixture to check if the necessary environment for E2E tests is set up.
-    Skips all tests in this module if the environment is not ready.
+    A fixture to set up the necessary environment for E2E tests.
+    Automatically configures the environment variables for testing.
     """
+    # Set default test environment variables if not already set
     if not os.environ.get("DEEPSECURE_CREDSERVICE_URL"):
-        pytest.skip("E2E tests require DEEPSECURE_CREDSERVICE_URL to be set.")
+        os.environ["DEEPSECURE_CREDSERVICE_URL"] = "http://127.0.0.1:8001"
+    
     if not os.environ.get("DEEPSECURE_CREDSERVICE_API_TOKEN"):
-        pytest.skip("E2E tests require DEEPSECURE_CREDSERVICE_API_TOKEN to be set.")
-    # Here, you could add logic to pre-seed the vault with secrets
-    # For now, we assume the user has run the necessary `deepsecure vault store` commands.
+        os.environ["DEEPSECURE_CREDSERVICE_API_TOKEN"] = "DEFAULT_QUICKSTART_TOKEN"
+    
+    # Check if the backend service is running
+    import requests
+    try:
+        response = requests.get(f"{os.environ['DEEPSECURE_CREDSERVICE_URL']}/health", timeout=5)
+        if response.status_code != 200:
+            pytest.skip(f"Backend service not healthy at {os.environ['DEEPSECURE_CREDSERVICE_URL']}/health")
+    except requests.exceptions.RequestException:
+        pytest.skip(f"Backend service not reachable at {os.environ['DEEPSECURE_CREDSERVICE_URL']}. Please start the credservice backend.")
+    
+    # Set up test secrets that the examples need
+    _setup_test_secrets()
+    
+    # Environment is ready for testing
+    return True
+
+def _setup_test_secrets():
+    """Set up the test secrets that examples require."""
+    import subprocess
+    import sys
+    
+    # List of secrets that examples need
+    test_secrets = [
+        ("example-api-key", "demo-api-key-12345"),
+        ("openai-api-key", "sk-demo-openai-key"),
+        ("notion-api-key", "secret_demo-notion-key"),
+        ("tavily-api-key", "tvly-demo-tavily-key"),
+    ]
+    
+    for secret_name, secret_value in test_secrets:
+        try:
+            # Use the deepsecure CLI to store the secret
+            result = subprocess.run(
+                [sys.executable, "-m", "deepsecure", "vault", "store", secret_name, "--value", secret_value],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            # We don't fail if secret already exists or if there are minor issues
+            # The examples will handle missing secrets gracefully
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            # Continue even if secret setup fails - examples should handle this gracefully
+            pass
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("script_name", EXAMPLE_SCRIPTS)

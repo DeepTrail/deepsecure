@@ -10,7 +10,13 @@ from pathlib import Path
 load_dotenv()
 
 def get_project_version() -> str:
-    """Reads the project version from the root pyproject.toml file."""
+    """Reads the project version from environment variable or pyproject.toml file."""
+    # First try to get version from environment variable (for Docker)
+    env_version = os.getenv("DEEPSECURE_VERSION")
+    if env_version:
+        return env_version
+    
+    # Fallback to reading from pyproject.toml (for local development)
     pyproject_path = Path(__file__).parent.parent.parent.parent / "pyproject.toml"
     if not pyproject_path.exists():
         return "0.0.0-dev"  # Fallback for when run in isolation
