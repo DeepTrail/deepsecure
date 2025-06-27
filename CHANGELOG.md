@@ -5,7 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.8] - 2025-07-31
+## [0.1.9] - 2025-06-26
+
+### Added
+- **Comprehensive Examples Documentation**: Created detailed `examples/README.md` with user-friendly setup instructions, learning objectives, expected behaviors, and troubleshooting guidance for all 7 SDK examples.
+- **Enhanced Release Process Documentation**: Added `credservice/docker-compose.yml` version management to the official release process, ensuring all three version locations stay synchronized.
+- **Automated Example Testing**: Implemented complete test coverage for all 7 examples in `tests/test_examples.py` with proper environment setup and error reporting.
+- **Streamlined Release Validation**: Replaced manual example execution with automated pytest-based testing for faster and more reliable release validation.
+
+### Changed
+- **Examples Status Updates**: Updated examples 03 and 05 from "Future" to "Work in Progress" status, providing more accurate development timeline expectations.
+- **Improved Setup Instructions**: Enhanced setup documentation with clear explanations of why each step is needed and optional skip conditions for users who have already completed main README setup.
+- **Better Learning Experience**: Added dual documentation approach with both "What You'll Learn" (educational) and "Expected Behavior" (validation) sections for each example.
+- **Release Process Efficiency**: Updated release testing workflow from 5+ individual commands to a single automated test command that covers all 7 examples.
+
+### Fixed
+- **Test Coverage Gaps**: Corrected `tests/test_examples.py` to include all 7 examples (was missing examples 04, 06, 07) with proper file path formatting.
+- **Version Management**: Added missing `DEEPSECURE_VERSION` environment variable documentation in release process to prevent version drift between package and Docker container.
+- **Documentation Consistency**: Aligned example descriptions and status indicators across all documentation files for better user experience.
+- **Pytest Failures and Architecture Cleanup**: Completely resolved all test failures by removing deprecated identity manager methods and modernizing the test suite for the new backend-only architecture.
+- **Identity Manager Architecture**: Removed all deprecated file-based identity methods (`create_identity`, `load_identity`, `list_identities`, `delete_identity`, `persist_generated_identity`, `find_identity_by_name`) and replaced with clean backend-first implementation.
+- **Test Suite Modernization**: Rewrote 43 tests across multiple test files to match the current backend-only architecture, achieving 100% test pass rate with comprehensive coverage of all functionality.
+- **Example Test Self-Containment**: Enhanced `tests/test_examples.py` with automatic environment setup, backend health checking, and secret provisioning, eliminating the need for manual environment configuration.
+- **Development Environment Sync**: Added `pip install -e .` step to release process documentation to prevent version mismatch issues between source code and installed package during testing.
+
+## [0.1.8] - 2025-06-25
 
 ### Added
 - **Automated Database Migrations**: The `credservice` now automatically runs database migrations on startup, eliminating the need for manual `alembic upgrade head` commands.
@@ -29,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Removed Manual Database Setup**: Removed all instructions for `createdb` and manual `alembic` commands from user-facing documentation, as this is now fully automated.
 - **Removed Redundant Setup Instructions**: Removed duplicate and out-of-sync setup details from the SDK documentation, pointing instead to a single source of truth.
 
-## [0.1.7] - 2025-07-28
+## [0.1.7] - 2025-06-23
 
 ### Added
 - **`CONTRIBUTING.md`**: Created a comprehensive guide for contributors, detailing modern and traditional development setups.

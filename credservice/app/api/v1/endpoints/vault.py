@@ -37,6 +37,35 @@ def store_secret(
         logger.error(f"Failed to store secret {secret_in.name}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not store secret")
 
+@router.get("/secrets/{name}", status_code=status.HTTP_200_OK)
+def get_secret_direct(
+    name: str,
+    db: deps.DbDep,
+    _: Any = deps.APIKeyDep
+):
+    """
+    Retrieve a secret directly from the vault by name.
+    This is for administrative/CLI use and bypasses the ephemeral credential system.
+    For programmatic agent access, use the credential issuance flow instead.
+    """
+    logger.info(f"Retrieving secret with name: {name}")
+    try:
+        secret_obj = crud.secret.get_secret_by_name(db=db, name=name)
+        if not secret_obj:
+            logger.warning(f"Secret '{name}' not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Secret '{name}' not found")
+        
+        return {
+            "name": secret_obj.name,
+            "value": secret_obj.value,
+            "created_at": secret_obj.created_at
+        }
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except Exception as e:
+        logger.error(f"Failed to retrieve secret {name}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not retrieve secret")
+
 @router.post("/credentials", response_model=schemas.credential.CredentialIssueResponse, status_code=status.HTTP_201_CREATED)
 def issue_credential(
     credential_in: schemas.credential.CredentialIssueRequest, # Input now has .ephemeral_public_key and .signature as bytes
@@ -86,7 +115,19 @@ def issue_credential(
         logger.error(f"Unexpected error during signature verification for agent {credential_in.agent_id}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Signature verification failed: {e}")
 
-    # 4. Create the credential record in the database
+    # 4. Check if this is a secret access request and fetch the secret value
+    secret_value = None
+    if credential_in.scope and credential_in.scope.startswith("secret:"):
+        secret_name = credential_in.scope[7:]  # Remove "secret:" prefix
+        logger.info(f"Fetching secret '{secret_name}' for credential issuance")
+        secret_obj = crud.secret.get_secret_by_name(db=db, name=secret_name)
+        if not secret_obj:
+            logger.warning(f"Secret '{secret_name}' not found for agent {credential_in.agent_id}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Secret '{secret_name}' not found")
+        secret_value = secret_obj.value
+        logger.info(f"Successfully retrieved secret '{secret_name}' for credential issuance")
+
+    # 5. Create the credential record in the database
     try:
         # crud.credential.create now expects obj_in where .ephemeral_public_key and .signature are bytes
         credential = crud.credential.create(db=db, obj_in=credential_in)
@@ -98,6 +139,14 @@ def issue_credential(
     except Exception as e:
         logger.error(f"Failed to create credential record for agent {credential_in.agent_id}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not create credential")
+
+    # 6. Add secret value to the response if this was a secret request
+    if secret_value is not None:
+        # We need to add the secret_value to the credential response
+        # Since we're returning the credential object directly, we need to modify the response
+        credential_dict = credential.__dict__.copy()
+        credential_dict['secret_value'] = secret_value
+        return credential_dict
 
     return credential # Pydantic will use schemas.credential.CredentialIssueResponse for serialization
 

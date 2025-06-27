@@ -32,6 +32,19 @@ class CRUDSecret(CRUDBase[Secret, SecretStoreRequest, SecretStoreRequest]):
         db.commit()
         db.refresh(db_obj)
         return db_obj
+    
+    def get_secret_by_name(self, db: Session, *, name: str) -> Optional[Secret]:
+        """
+        Retrieve a secret by its name.
+
+        Args:
+            db: The database session.
+            name: The name of the secret to retrieve.
+
+        Returns:
+            The Secret database object if found, None otherwise.
+        """
+        return db.query(Secret).filter(Secret.name == name).first()
 
 # Create a secret object to be imported by other modules
 secret = CRUDSecret(Secret) 
