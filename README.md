@@ -15,6 +15,7 @@
   <a href="https://opensource.org/licenses/Apache-2.0">
     <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square" alt="License"/>
   </a>
+  <a href="https://deepwiki.com/DeepTrail/deepsecure"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"/></a>
   <br/>
   <a href="https://github.com/DeepTrail/deepsecure/stargazers">
     <img src="https://img.shields.io/github/stars/DeepTrail/deepsecure?style=flat-square" alt="GitHub stars"/>
