@@ -7,3 +7,8 @@ __pycache__
 *_cli.egg-info/
 dist/
 *.db
+scratch-notes/*
+deepsecure.egg-info/*
+assets/.DS_Store*
+cursor/*
+.DS_Store*
