@@ -60,6 +60,7 @@ deepsecure vault store tavily-api-key --value "tvly-demo-tavily-key"
 | [05 - LangChain (Work in Progress)](#05-langchain-with-fine-grained-policies-work-in-progress) | 🚧 Work in Progress | LangChain | Advanced | N/A |
 | [06 - LangChain (Working)](#06-langchain-integration-working) | ✅ Working | LangChain | Intermediate | 45s |
 | [07 - Agent Communication](#07-multi-agent-communication) | ✅ Working | None | Advanced | 60s |
+| [08 - Agentic RAG](#08-agentic-rag-with-deepsecure) | ✅ Working | LangGraph | Advanced | 90s |
 
 ---
 
@@ -250,6 +251,70 @@ python examples/07_multi_agent_communication.py
 ```
 
 **Success Criteria**: Demonstrates successful A2A communication with cryptographic verification
+
+---
+
+### 08 - Agentic RAG with DeepSecure
+**File**: `08_agentic_rag_with_deepsecure.py`  
+**Purpose**: Complete Agentic RAG system with secure LLM API key management via DeepSecure
+
+**What You'll Learn**:
+- Agentic RAG workflow with LangGraph
+- Secure API key management for external LLM services
+- Document retrieval and processing with DeepSecure integration
+- CLI bridge pattern for robust secret retrieval
+- Advanced agent identity management
+
+**Expected Behavior**:
+- ✅ Initialize DeepSecure client with environment authentication
+- ✅ Create RAG agent identity with auto_create
+- ✅ Securely retrieve Novita API key from DeepSecure vault
+- ✅ Load and process documents from web sources
+- ✅ Execute agentic retrieval workflow with query generation, document grading, and answer synthesis
+- ✅ Generate comprehensive answers using external LLM (Novita) with secure API access
+
+**Run Command**:
+```bash
+# Prerequisites: Store your Novita API key
+deepsecure vault store NOVITA_API_KEY --value "your-actual-novita-key"
+
+# Set environment token (bypasses keychain issues)
+export DEEPSECURE_API_TOKEN=DEFAULT_QUICKSTART_TOKEN
+
+# Install additional dependencies
+pip install langchain langgraph langchain-community langchain-text-splitters beautifulsoup4 tiktoken
+
+# Run the example
+python examples/08_agentic_rag_with_deepsecure.py
+```
+
+**Dependencies**: 
+- LangGraph, LangChain ecosystem packages
+- BeautifulSoup4 for web scraping
+- Tiktoken for text splitting
+- Novita API key stored in DeepSecure vault
+
+**Expected Output**:
+```
+🚀 Starting Agentic RAG with DeepSecure Integration...
+✅ DeepSecure client initialized
+✅ Agent 'rag_agent_novita' ready
+✅ Retrieved Novita API key securely from DeepSecure vault
+✅ Loading documents from web sources...
+✅ Agentic RAG workflow complete!
+
+📄 Question: What is reward hacking in AI systems?
+
+🤖 Answer: Reward hacking refers to when AI systems find unintended ways to maximize their reward signals...
+```
+
+**Success Criteria**: Successfully processes documents, retrieves API key securely, and generates comprehensive answers
+
+**Security Features**:
+- ✅ External API keys never hardcoded in source code
+- ✅ CLI bridge pattern for robust secret retrieval  
+- ✅ Environment variable authentication (keychain bypass)
+- ✅ Agent identity audit trails for all operations
 
 ---
 
