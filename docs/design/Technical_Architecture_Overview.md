@@ -48,44 +48,49 @@ These principles are embodied in a unified architecture built on four pillars:
 The system is composed of two primary components: the **Control Plane** (`deeptrail-control`) and the **Data Plane** (`deeptrail-gateway`), which work together to secure agent actions without placing a burden on the developer.
 
 ```mermaid
-graph TD
-    subgraph "Developer/Admin Environment"
-        CLI("DeepTrail CLI")
-    end
-
-    subgraph "Agent's Environment"
-        Agent("AI Agent") -- "Uses" --> SDK("DeepSecure SDK")
-    end
-
-    subgraph "DeepTrail Control Plane"
-        direction LR
-        ControlPlane("deeptrail-control")
-        DB("(Policy & Audit DB)")
-        ControlPlane -- "Manages" --> DB
-    end
-    
-    subgraph "DeepTrail Data Plane (Gateway)"
-        Gateway("deeptrail-gateway")
-    end
-
-    subgraph "External Services"
-        API1("SaaS API 1 (e.g., OpenAI)")
-        API2("Internal API 2")
-        API3("Database")
-    end
-
-    CLI -- "Defines Policies" --> ControlPlane
-    Agent -- "1. Request Action (e.g., call API)" --> SDK
-    SDK -- "2. Forwards request w/ credential" --> Gateway
-    Gateway -- "3. Validate Credential & Policy" --> ControlPlane
-    ControlPlane -- "4. Returns Policy Decision" --> Gateway
-    Gateway -- "5. If OK, forwards request" --> API1
-    API1 -- "6. Returns Response" --> Gateway
-    Gateway -- "7. Forwards Response" --> SDK
-    SDK -->>Agent: returns result
-    Gateway -- "Logs Transaction" --> ControlPlane
-
+---
+config:
+  layout: dagre
+---
+flowchart TD
+ subgraph Developer_Admin["Developer_Admin"]
+        CLI["DeepTrail CLI"]
+        AgentBuilder["Agent Code and Framework"]
+  end
+ subgraph Agent_Environment["Agent_Environment"]
+        Agent["AI Agent"]
+        SDK["DeepSecure SDK"]
+  end
+ subgraph Control_Plane["Control_Plane"]
+        ControlPlane["deeptrail-control PDP"]
+        DB[("Policy & Audit DB")]
+        PolicyStore[("Signed Policy Objects")]
+        SecretsVault[("Split-Key Secret Store")]
+  end
+ subgraph Data_Plane["Data_Plane"]
+        Gateway["deeptrail-gateway PEP"]
+  end
+ subgraph External_Services["External_Services"]
+        OpenAI["OpenAI API"]
+        Google["Google Drive OAuth"]
+        InternalDB["Internal API Database"]
+  end
+    AgentBuilder -- Builds --> Agent
+    Agent -- Uses --> SDK
+    ControlPlane --> DB & PolicyStore & SecretsVault
+    CLI -- Define policies & secrets --> ControlPlane
+    SDK -- Token request / agent auth --> ControlPlane
+    SDK -- Send tool calls --> Gateway
+    Gateway -- Policy verification & audit --> ControlPlane
+    Gateway -- Fetch partial key --> ControlPlane
+    Gateway -- Assemble + forward request --> OpenAI
+    Gateway --> Google & InternalDB & SDK
+    OpenAI --> Gateway
+    Google --> Gateway
+    InternalDB --> Gateway
+    SDK --> Agent
     style CLI fill:#f9f,stroke:#333,stroke-width:2px
+    style AgentBuilder fill:#eef,stroke:#333,stroke-width:2px
     style ControlPlane fill:#f9f,stroke:#333,stroke-width:2px
     style Gateway fill:#ccf,stroke:#333,stroke-width:2px
 ```
@@ -128,31 +133,45 @@ The security of the DeepTrail platform is built on two core concepts: a decentra
 To avoid the performance and resilience issues of a purely centralized policy architecture, we separate the **Policy Decision Point (PDP)** from the **Policy Enforcement Point (PEP)**.
 
 ```mermaid
-graph TD
-    subgraph "Phase 1: Fully Centralized (Traditional Model)"
-        direction LR
-        A1[Agent] --> P1[PEP]
-        P1 -- "Policy Check (Network Call)" --> D1[PDP]
-        D1 -- "Decision" --> P1
-        D1 -- "Reads Policy" --> DB1[(Database)]
-    end
-
-    subgraph "Phase 2: Decentralized Enforcement (The DeepTrail Model)"
-        direction LR
-        subgraph "Control Plane (Policy Admin)"
-            DB2[(Database)] --> PDP2[PDP]
-            PDP2 -- "Publishes Signed<br/>Policy Object" --> PolicyStore[("Policy<br/>Store")]
-        end
-        subgraph "Data Plane (Runtime Enforcement)"
-            PEP2["PEP<br/>deeptrail-gateway<br/><br/><i>Policy decisions are made locally<br/>using the synced, signed policy.<br/>No runtime dependency on the PDP.</i>"]
-            A2[Agent] --> PEP2
-            PEP2 -- "Syncs Policy<br/>Periodically" --> PolicyStore
-        end
-    end
-    
-    style P1 fill:#fdd,stroke:#c00,stroke-width:2px
-    style D1 fill:#fdd,stroke:#c00,stroke-width:2px
+---
+config:
+  layout: dagre
+---
+flowchart TD
+ subgraph Phase1["Phase 1: Fully Centralized (Traditional Model)"]
+        Agent1["Agent"]
+        PEP1["PEP"]
+        PDP1["PDP"]
+        DB1["Policy Database"]
+  end
+ subgraph ControlPlane["Control Plane (Policy Admin)"]
+        DB2["Policy DB"]
+        PDP2["PDP"]
+        PolicyStore["Policy Store"]
+  end
+ subgraph DataPlane["Data Plane (Runtime)"]
+        Agent2["Agent"]
+        PEP2["PEP: deeptrail-gateway"]
+        Note2["Policy decisions made locally using the synced, signed policy. No runtime dependency on PDP."]
+  end
+ subgraph Phase2["Phase 2: Decentralized (DeepTrail Model)"]
+        ControlPlane
+        DataPlane
+  end
+    Agent1 --> PEP1
+    PEP1 -- Policy Check --> PDP1
+    PDP1 -- Decision --> PEP1
+    PDP1 -- Reads Policy --> DB1
+    DB2 --> PDP2
+    PDP2 -- Publishes Signed Policy Object --> PolicyStore
+    Agent2 --> PEP2
+    PEP2 -- Syncs Policy Periodically --> PolicyStore
+    PEP2 --> Note2
+    style PEP1 fill:#fdd,stroke:#c00,stroke-width:2px
+    style PDP1 fill:#fdd,stroke:#c00,stroke-width:2px
+    style PDP2 fill:#fdf,stroke:#636,stroke-width:2px
     style PEP2 fill:#dff,stroke:#096,stroke-width:2px
+    style Note2 fill:#fff,stroke:#aaa,stroke-dasharray: 4
 ```
 
 *   **Policy Decision Point (PDP):** This logic resides within `deeptrail-control`. It is the source of truth for all policies and is responsible for creating, updating, and signing policy documents. It does *not* participate in the runtime request path.
@@ -375,27 +394,36 @@ This use case demonstrates how DeepTrail simplifies the developer workflow and e
 Without DeepTrail, the developer must manually handle the API key, which gets passed around between components, increasing the risk of exposure.
 
 ```mermaid
-graph TD
-    subgraph "Traditional Insecure Workflow"
-        subgraph "Developer's Machine"
-            EnvFile["(.env) <br> API_KEY=sk-..."]
-        end
-
-        subgraph "Application Runtime"
-            MainAgent("Main Agent")
-            ToolAgent("Tool Agent")
-        end
-
-        ExternalAPI("External API Service")
-
-        EnvFile -- "1. Raw key loaded into memory" --> MainAgent
-        MainAgent -- "2. Raw key passed to another agent" --> ToolAgent
-        ToolAgent -- "3. Raw key sent over the network" --> ExternalAPI
-
-        classDef default fill:#fff,stroke:#333,stroke-width:2px;
-        classDef vuln fill:#fdd,stroke:#c00,stroke-width:2px;
-        class EnvFile,MainAgent,ToolAgent vuln;
-    end
+---
+config:
+  layout: dagre
+---
+flowchart TD
+ subgraph Dev["Developer's Machine"]
+        EnvFile[".env file\n(API_KEY=sk-...)"]
+  end
+ subgraph App["Application Runtime"]
+        MainAgent["Main Agent"]
+        Step2["\2. Raw key passed to another agent"]
+        ToolAgent["Tool Agent"]
+        Step3["\3. Raw key sent over the network"]
+  end
+ subgraph Traditional["Traditional Insecure Workflow"]
+        Dev
+        Step1["\1. Raw key loaded into memory"]
+        App
+        ExternalAPI["External API Service"]
+  end
+    EnvFile --> Step1
+    Step1 --> MainAgent
+    MainAgent --> Step2
+    Step2 --> ToolAgent
+    ToolAgent --> Step3
+    Step3 --> ExternalAPI
+     EnvFile:::vuln
+     MainAgent:::vuln
+     ToolAgent:::vuln
+    classDef vuln fill:#fdd,stroke:#c00,stroke-width:2px
 ```
 
 **End-User & Developer Workflow (Before DeepTrail):**
@@ -415,7 +443,7 @@ With DeepTrail, the agent never handles the API key. It operates on short-lived,
 graph TD
     subgraph "Secure Workflow with DeepTrail Gateway"
         subgraph "DeepTrail Control Plane"
-            ControlPlane["deeptrail-control<br/>(Secure Vault)"]
+            ControlPlane["deeptrail-control<br/>"]
         end
         
         subgraph "Application Runtime"
@@ -425,11 +453,11 @@ graph TD
 
         ExternalAPI("External API Service")
 
-        Admin -- "1. Admin registers API Key once" --> ControlPlane
-        Agent -- "2. Agent gets short-lived token<br/>(never sees the key)" --> ControlPlane
-        Agent -- "3. Makes proxied API call" --> Gateway
-        Gateway -- "4. Validates token & JIT fetches key" --> ControlPlane
-        Gateway -- "5. Injects key into request" --> ExternalAPI
+        Admin -- "\1. Admin registers API Key once" --> ControlPlane
+        Agent -- "\2. Agent gets short-lived token<br/>(never sees the key)" --> ControlPlane
+        Agent -- "\3. Makes proxied API call" --> Gateway
+        Gateway -- "\4. Validates token & JIT fetches key" --> ControlPlane
+        Gateway -- "\5. Injects key into request" --> ExternalAPI
         ExternalAPI -- "Response" --> Gateway
         Gateway -- "Response" --> Agent
 
