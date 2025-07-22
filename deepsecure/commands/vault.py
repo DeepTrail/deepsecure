@@ -37,7 +37,7 @@ def store(
     try:
         client = deepsecure.Client()
         if agent_id:
-            client.store_secret(agent_id=agent_id, name=name, value=value)
+            client.store_secret(agent_id=agent_id, name=name, secret_value=value)
             cli_utils.print_success(f"Secret '{name}' stored successfully for agent '{agent_id}'.")
         else:
             # We need to decide on a direct storage path.

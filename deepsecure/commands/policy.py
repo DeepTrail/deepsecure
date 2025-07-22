@@ -110,10 +110,8 @@ def attestation_create_k8s(
         "platform": "kubernetes",
         "agent_name": agent_name,
         "description": description or f"K8s attestation policy for {agent_name}",
-        "policy_data": {
-            "namespace": namespace,
-            "service_account": service_account,
-        },
+        "k8s_namespace": namespace,
+        "k8s_service_account": service_account,
     }
     new_policy = policy_client.create_attestation_policy(policy_data)
     console.print("Kubernetes attestation policy created successfully:")

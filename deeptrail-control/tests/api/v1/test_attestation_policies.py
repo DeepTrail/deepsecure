@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.tests.utils.utils import random_lower_string, random_uuid
+from tests.utils.utils import random_lower_string, random_uuid
 
 
 def test_create_k8s_attestation_policy(

@@ -92,6 +92,83 @@ class HeaderSanitizer:
                 sanitized[key] = value
         return sanitized
 
+# For Future - Enterprise Grade: Metadata classes for structured logging
+@dataclass
+class RequestMetadata:
+    """Metadata about the incoming request."""
+    request_id: str
+    method: str
+    path: str
+    client_ip: str
+    user_agent: Optional[str] = None
+    content_type: Optional[str] = None
+    content_length: Optional[int] = None
+
+@dataclass
+class ResponseMetadata:
+    """Metadata about the outgoing response."""
+    status_code: int
+    content_type: Optional[str] = None
+    content_length: Optional[int] = None
+    headers: Optional[Dict[str, str]] = None
+
+@dataclass
+class TimingMetadata:
+    """Timing information for request processing."""
+    start_time: float
+    end_time: Optional[float] = None
+    processing_time: Optional[float] = None
+    upstream_time: Optional[float] = None
+
+@dataclass
+class SecurityMetadata:
+    """Security-related metadata."""
+    jwt_valid: bool = False
+    agent_id: Optional[str] = None
+    policy_applied: bool = False
+    sanitized: bool = False
+    violations: List[str] = None
+
+    def __post_init__(self):
+        if self.violations is None:
+            self.violations = []
+
+@dataclass
+class ProxyMetadata:
+    """Proxy operation metadata."""
+    target_url: Optional[str] = None
+    target_host: Optional[str] = None
+    upstream_status: Optional[int] = None
+    retries: int = 0
+    cache_hit: bool = False
+
+@dataclass
+class RequestLogEntry:
+    """Complete log entry for a request."""
+    request_metadata: RequestMetadata
+    response_metadata: Optional[ResponseMetadata] = None
+    timing_metadata: Optional[TimingMetadata] = None
+    security_metadata: Optional[SecurityMetadata] = None
+    proxy_metadata: Optional[ProxyMetadata] = None
+    error_message: Optional[str] = None
+    warnings: List[str] = None
+
+    def __post_init__(self):
+        if self.warnings is None:
+            self.warnings = []
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "request": asdict(self.request_metadata),
+            "response": asdict(self.response_metadata) if self.response_metadata else None,
+            "timing": asdict(self.timing_metadata) if self.timing_metadata else None,
+            "security": asdict(self.security_metadata) if self.security_metadata else None,
+            "proxy": asdict(self.proxy_metadata) if self.proxy_metadata else None,
+            "error": self.error_message,
+            "warnings": self.warnings
+        }
+
 # For Future - Enterprise Grade: Request tracking
 @dataclass
 class RequestInfo:

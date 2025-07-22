@@ -511,7 +511,7 @@ class TestTokenStructureTesting:
         assert payload["sub"] == self.test_agent_id
         
         # Should fail with wrong secret
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, jose_jwt.JWTError)):
             jose_jwt.decode(token, "wrong-secret", algorithms=["HS256"])
     
     def test_token_expiration_handling(self):

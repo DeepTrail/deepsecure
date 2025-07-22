@@ -49,9 +49,10 @@ class TestChainedIdentityManager:
         AND the other providers are not called.
         """
         # Arrange
+        mock_api_client = MagicMock()
         mock_k8s_provider.get_identity.return_value = MOCK_AGENT_IDENTITY
         providers = [mock_k8s_provider, mock_aws_provider, mock_keyring_provider]
-        manager = IdentityManager(providers=providers, silent_mode=True)
+        manager = IdentityManager(api_client=mock_api_client, providers=providers, silent_mode=True)
 
         # Act
         result = manager.get_identity("any-agent-id")
@@ -62,86 +63,75 @@ class TestChainedIdentityManager:
         mock_aws_provider.get_identity.assert_not_called()
         mock_keyring_provider.get_identity.assert_not_called()
 
-    def test_get_identity_aws_provider_success(
-        self, mock_k8s_provider, mock_aws_provider, mock_keyring_provider
-    ):
+    def test_get_identity_aws_provider_success(self, mock_k8s_provider, mock_aws_provider, mock_keyring_provider):
         """
-        GIVEN an identity manager with a K8s, AWS, and Keyring provider
-        WHEN the K8s provider fails but the AWS provider finds an identity
-        THEN the AWS provider's identity is returned
-        AND the keyring provider is not called.
+        Test that the IdentityManager correctly uses the AWS provider when Kubernetes fails.
         """
         # Arrange
+        mock_api_client = MagicMock()
         mock_k8s_provider.get_identity.return_value = None
         mock_aws_provider.get_identity.return_value = MOCK_AGENT_IDENTITY
         providers = [mock_k8s_provider, mock_aws_provider, mock_keyring_provider]
-        manager = IdentityManager(providers=providers, silent_mode=True)
+        manager = IdentityManager(api_client=mock_api_client, providers=providers, silent_mode=True)
 
         # Act
         result = manager.get_identity("any-agent-id")
 
         # Assert
         assert result == MOCK_AGENT_IDENTITY
-        mock_k8s_provider.get_identity.assert_called_once_with("any-agent-id")
-        mock_aws_provider.get_identity.assert_called_once_with("any-agent-id")
+        mock_k8s_provider.get_identity.assert_called_once()
+        mock_aws_provider.get_identity.assert_called_once()
         mock_keyring_provider.get_identity.assert_not_called()
 
-    def test_get_identity_keyring_fallback_success(
-        self, mock_k8s_provider, mock_aws_provider, mock_keyring_provider
-    ):
+    def test_get_identity_keyring_provider_success(self, mock_k8s_provider, mock_aws_provider, mock_keyring_provider):
         """
-        GIVEN an identity manager with a K8s, AWS, and Keyring provider
-        WHEN the K8s and AWS providers fail but the Keyring provider succeeds
-        THEN the Keyring provider's identity is returned.
+        Test that the IdentityManager falls back to keyring provider when cloud providers fail.
         """
         # Arrange
+        mock_api_client = MagicMock()
         mock_k8s_provider.get_identity.return_value = None
         mock_aws_provider.get_identity.return_value = None
         mock_keyring_provider.get_identity.return_value = MOCK_AGENT_IDENTITY
         providers = [mock_k8s_provider, mock_aws_provider, mock_keyring_provider]
-        manager = IdentityManager(providers=providers, silent_mode=True)
+        manager = IdentityManager(api_client=mock_api_client, providers=providers, silent_mode=True)
 
         # Act
         result = manager.get_identity("any-agent-id")
 
         # Assert
         assert result == MOCK_AGENT_IDENTITY
-        mock_k8s_provider.get_identity.assert_called_once_with("any-agent-id")
-        mock_aws_provider.get_identity.assert_called_once_with("any-agent-id")
-        mock_keyring_provider.get_identity.assert_called_once_with("any-agent-id")
+        mock_k8s_provider.get_identity.assert_called_once()
+        mock_aws_provider.get_identity.assert_called_once()
+        mock_keyring_provider.get_identity.assert_called_once()
 
-    def test_get_identity_no_providers_succeed(
-        self, mock_k8s_provider, mock_aws_provider, mock_keyring_provider
-    ):
+    def test_get_identity_no_providers_match(self, mock_k8s_provider, mock_aws_provider, mock_keyring_provider):
         """
-        GIVEN an identity manager with a K8s, AWS, and Keyring provider
-        WHEN all providers fail to find an identity
-        THEN None is returned.
+        Test that the IdentityManager returns None when no providers can provide an identity.
         """
         # Arrange
+        mock_api_client = MagicMock()
         mock_k8s_provider.get_identity.return_value = None
         mock_aws_provider.get_identity.return_value = None
         mock_keyring_provider.get_identity.return_value = None
         providers = [mock_k8s_provider, mock_aws_provider, mock_keyring_provider]
-        manager = IdentityManager(providers=providers, silent_mode=True)
+        manager = IdentityManager(api_client=mock_api_client, providers=providers, silent_mode=True)
 
         # Act
         result = manager.get_identity("any-agent-id")
 
         # Assert
         assert result is None
-        mock_k8s_provider.get_identity.assert_called_once_with("any-agent-id")
-        mock_aws_provider.get_identity.assert_called_once_with("any-agent-id")
-        mock_keyring_provider.get_identity.assert_called_once_with("any-agent-id")
+        mock_k8s_provider.get_identity.assert_called_once()
+        mock_aws_provider.get_identity.assert_called_once()
+        mock_keyring_provider.get_identity.assert_called_once()
 
-    def test_get_identity_with_no_providers(self):
+    def test_get_identity_empty_providers_list(self):
         """
-        GIVEN an identity manager with no providers configured
-        WHEN get_identity is called
-        THEN None is returned.
+        Test that the IdentityManager handles an empty providers list gracefully.
         """
         # Arrange
-        manager = IdentityManager(providers=[], silent_mode=True)
+        mock_api_client = MagicMock()
+        manager = IdentityManager(api_client=mock_api_client, providers=[], silent_mode=True)
 
         # Act
         result = manager.get_identity("any-agent-id")

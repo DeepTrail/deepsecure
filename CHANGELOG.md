@@ -7,8 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.10] - 2025-01-21
 
-### 🏗️ **MAJOR ARCHITECTURAL TRANSFORMATION**
-**Complete evolution from monolithic to enterprise-grade dual-service architecture with advanced security features**
+### 🏗️ **MAJOR ARCHITECTURAL TRANSFORMATION + CRITICAL STABILITY FIXES**
+**Complete evolution from monolithic to enterprise-grade dual-service architecture with advanced security features and comprehensive test infrastructure overhaul**
+
+### Fixed
+
+#### **P0 Critical Production Issues Resolved**
+- **Database Schema Compatibility**: Fixed critical PostgreSQL/SQLite compatibility issue where JSONB columns caused test failures
+  - Implemented database-aware column types using SQLAlchemy `.with_variant()` 
+  - PostgreSQL production now uses high-performance JSONB, SQLite tests use compatible JSON
+  - Affected models: `Secret.secret_metadata`, `Credential.origin_context`, `Policy.actions/resources`
+- **Gateway Core Implementation**: Resolved missing class imports that blocked Gateway tests
+  - Implemented `RequestMetadata`, `HeaderSanitizer`, `RequestLogEntry` classes in `deeptrail-gateway/app/core/request_logger.py`
+  - Added comprehensive metadata classes for structured logging and request processing
+  - Fixed all import errors preventing Gateway test execution
+- **Backend Service Dependencies**: Resolved integration test failures and import path issues
+  - Fixed test utility imports and path resolution across moved test files
+  - Added missing utility functions (`random_uuid()`) to test helpers
+  - Corrected service-to-service communication paths
+
+#### **Documentation Consistency**
+- **Removed Legacy References**: Eliminated all outdated "credservice" references from documentation
+  - Updated `docs/README.md` to reference "Backend Services Setup" instead of "Credservice Setup"
+  - Changed environment variables from `DEEPSECURE_CREDSERVICE_URL` to `DEEPSECURE_CONTROL_PLANE_URL`
+  - Updated troubleshooting guides and setup instructions for dual-service architecture
 
 ### Added
 
@@ -141,6 +163,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Client ↔ Control Plane**: RESTful API with API key authentication
 - **Client ↔ Gateway**: JWT-based authentication with proxy forwarding
 - **Gateway ↔ External Services**: Transparent proxying with credential injection
+
+#### **Comprehensive Test Documentation**
+- **`docs/test-architecture-mapping.md`**: Complete mapping of 64 tests to architectural components
+- **`docs/test-results-report.md`**: Detailed analysis of test results across all components
+- **`docs/p0-critical-issues-resolution.md`**: Documentation of critical fixes implemented
+- **`docs/jsonb-to-json-impact-analysis.md`**: Technical analysis of database compatibility solution
+
+#### **Test Result Tracking**
+- Created systematic approach to track test results by architectural component
+  - Main CLI/SDK Tests: 247 tests with 89% pass rate  
+  - Control Plane Tests: Previously blocked, now functional with database fixes
+  - Gateway Tests: Previously blocked, now functional with missing class implementations
+
+### Changed
+
+#### **Test Infrastructure Overhaul**
+- **Complete Test Reorganization**: Moved all test files from project root to proper architectural locations
+  - Policy CLI tests: `test_policy_cli_*.py` → `tests/commands/` (3 files)
+  - Core functionality tests: `test_*_detection.py`, `test_keyring_*.py` → `tests/_core/` (2 files)  
+  - SDK integration tests: `test_sdk_bootstrap_integration.py` → `tests/` (1 file)
+  - Updated all import paths to use relative paths instead of hardcoded absolute paths
+- **Enhanced Test Architecture Mapping**: Created comprehensive documentation showing how all 64 test files map to architectural components
+  - Control Plane (PDP): 24 test files covering policy decisions and agent management
+  - Data Plane (PEP): 16 test files covering policy enforcement and secret injection
+  - CLI/SDK: 14 test files covering user interfaces and developer experience
+
+### Technical Implementation Details
+
+#### **Database Compatibility Solution**
+```python
+# Applied to all JSON columns across models
+secret_metadata = Column(
+    JSON().with_variant(postgresql.JSONB(), 'postgresql'),
+    nullable=True
+)
+```
+- **Production (PostgreSQL)**: Uses JSONB for high performance and indexing
+- **Testing (SQLite)**: Uses JSON for compatibility and test speed
+- **Zero Breaking Changes**: Existing queries and functionality preserved
+
+#### **Test Organization Strategy**
+- **By Architectural Layer**: Tests organized by the component they validate
+- **Import Path Standardization**: All tests use relative imports for portability
+- **Comprehensive Coverage**: Every major architectural component has dedicated test coverage
 
 ## [0.1.9] - 2025-06-26
 

@@ -25,7 +25,8 @@ from datetime import datetime, timedelta
 # Import DeepSecure components
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'deeptrail-control'))
+# Add the repository root to the path so we can import from deepsecure
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
 
 try:
     from fastapi.testclient import TestClient

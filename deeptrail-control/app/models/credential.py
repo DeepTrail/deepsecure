@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, LargeBinary, DateTime, func, ForeignKey, JSON, Boolean, Integer, Text
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID  # Keep for potential future use if switching DB
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID, JSONB  # Keep for potential future use if switching DB
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.sql import func
 
 from app.db.base import Base
@@ -23,7 +23,11 @@ class Credential(Base):
     signature = Column(LargeBinary, nullable=True, comment="Signature of the ephemeral_public_key using the agent's long-term key (bytes).")
 
     scope = Column(String, nullable=True, comment="Scope of access granted by this credential.")
-    origin_context = Column(JSON, nullable=True, comment="Optional JSON containing origin context details (hostname, IP, etc.).")
+    origin_context = Column(
+        JSON().with_variant(postgresql.JSONB(), 'postgresql'),
+        nullable=True, 
+        comment="Optional JSON containing origin context details (hostname, IP, etc.)."
+    )
 
     issued_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Timestamp when the credential was issued.")
     expires_at = Column(DateTime(timezone=True), nullable=False, comment="Timestamp when the credential expires.")
@@ -45,5 +49,8 @@ class Secret(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True, nullable=False)
     share_1 = Column(Text, nullable=False, comment="The first share of the split secret.")
-    secret_metadata = Column(JSONB, nullable=True)
+    secret_metadata = Column(
+        JSON().with_variant(postgresql.JSONB(), 'postgresql'),
+        nullable=True
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now()) 

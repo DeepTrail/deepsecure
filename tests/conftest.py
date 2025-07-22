@@ -2,12 +2,48 @@ import pytest
 import subprocess
 import time
 import os
+from unittest.mock import MagicMock, patch
+from typer.testing import CliRunner
+
 from deepsecure.client import Client as DeepSecureClient
 from deepsecure._core.agent_client import AgentClient
-from deepsecure._core.identity_manager import IdentityManagerError
+from deepsecure._core.identity_manager import IdentityManager, IdentityManagerError
 from deepsecure.exceptions import DeepSecureError, DeepSecureClientError
 
 COMPOSE_FILE = os.path.join(os.path.dirname(__file__), '..', 'deeptrail-control', 'docker-compose.test.yml')
+
+# Mock key data for consistent testing
+MOCK_PRIVATE_KEY_B64 = "cHJpdmF0ZV9rZXlfYnl0ZXNfZm9yX3Rlc3RpbmdfMzI="
+MOCK_PUBLIC_KEY_B64 = "cHVibGljX2tleV9ieXRlc19mb3JfdGVzdGluZ18zMg=="
+MOCK_SIGNATURE = "bW9ja19zaWduYXR1cmVfZm9yX3Rlc3RpbmdfNjQ="
+
+@pytest.fixture
+def runner():
+    """Fixture providing a CliRunner for testing CLI commands."""
+    return CliRunner()
+
+@pytest.fixture
+def identity_manager_mock():
+    """Fixture providing a mocked IdentityManager for testing."""
+    mock_identity_manager = MagicMock(spec=IdentityManager)
+    
+    # Mock common methods
+    mock_identity_manager.get_private_key.return_value = MOCK_PRIVATE_KEY_B64
+    mock_identity_manager.generate_ed25519_keypair_raw_b64.return_value = {
+        'private_key': MOCK_PRIVATE_KEY_B64,
+        'public_key': MOCK_PUBLIC_KEY_B64
+    }
+    mock_identity_manager.sign.return_value = MOCK_SIGNATURE
+    mock_identity_manager.store_private_key_directly.return_value = None
+    mock_identity_manager.delete_private_key.return_value = None
+    
+    return mock_identity_manager
+
+@pytest.fixture
+def mock_client_class():
+    """Fixture providing a mocked Client class for testing."""
+    with patch('deepsecure.client.Client', autospec=True) as mock_client:
+        yield mock_client
 
 def is_service_ready(port):
     """Check if a service is ready by trying to connect to its port."""

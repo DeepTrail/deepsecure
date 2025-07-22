@@ -1,7 +1,8 @@
 import uuid
 from sqlalchemy import Column, String, ForeignKey, JSON
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects import postgresql
 
 from app.db.base import Base
 
@@ -16,5 +17,11 @@ class Policy(Base):
     agent = relationship("Agent")
 
     effect = Column(String, nullable=False, default="allow")
-    actions = Column(JSON, nullable=False)
-    resources = Column(JSON, nullable=False) 
+    actions = Column(
+        JSON().with_variant(postgresql.JSONB(), 'postgresql'),
+        nullable=False
+    )
+    resources = Column(
+        JSON().with_variant(postgresql.JSONB(), 'postgresql'),
+        nullable=False
+    ) 

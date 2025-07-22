@@ -153,7 +153,7 @@ class TestPhase2JWTFixSimple:
         try:
             import sys
             import os
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'deeptrail-gateway'))
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'deeptrail-gateway'))
             
             from app.core.proxy_config import config
             
@@ -177,7 +177,7 @@ class TestPhase2JWTFixSimple:
         try:
             import sys
             import os
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'deeptrail-gateway'))
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'deeptrail-gateway'))
             
             from app.middleware.jwt_validation import JWTValidationMiddleware
             

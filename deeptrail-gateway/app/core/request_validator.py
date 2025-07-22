@@ -6,11 +6,11 @@ to ensure security, format compliance, and policy adherence.
 """
 
 import re
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 from urllib.parse import urlparse
 
 from fastapi import Request, HTTPException
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from .proxy_config import config
 
@@ -34,7 +34,8 @@ class ProxyRequestInfo(BaseModel):
     content_length: int = Field(default=0, description="Content length in bytes")
     content_type: Optional[str] = Field(default=None, description="Content type")
     
-    @validator('target_url')
+    @field_validator('target_url')
+    @classmethod
     def validate_target_url(cls, v):
         """Validate target URL format."""
         if not v:
@@ -49,7 +50,8 @@ class ProxyRequestInfo(BaseModel):
         
         return v
     
-    @validator('method')
+    @field_validator('method')
+    @classmethod
     def validate_method(cls, v):
         """Validate HTTP method."""
         allowed_methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
