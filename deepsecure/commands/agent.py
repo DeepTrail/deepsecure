@@ -8,7 +8,10 @@ from pathlib import Path
 from .. import utils
 from ..utils import get_client
 import deepsecure
-from .._core.identity_manager import identity_manager
+from .._core.agent_client import AgentClient
+from .._core.identity_manager import IdentityManager
+from ..resources.agent import Agent
+from deepsecure.exceptions import ApiError, DeepSecureError, DeepSecureClientError
 
 logger = logging.getLogger(__name__)
 
@@ -26,34 +29,40 @@ AgentID = typer.Argument(..., help="The unique identifier of the agent.")
 def create_agent(
     name: str = typer.Option(..., "--name", "-n", help="A human-readable name for the agent."),
     description: Optional[str] = typer.Option(None, "--description", "-d", help="A description for the agent."), # Description is not used by SDK agent creation yet, but kept for future use
-    output: str = typer.Option("text", "--output", "-o", help="Output format (`text` or `json`).", case_sensitive=False)
+    output: str = typer.Option("text", "--output", "-o", help="Output format (text, json)"),
 ):
     """
-    Creates a new agent identity locally and registers it with the backend.
+    Creates a new agent, generating a new cryptographic keypair and storing it in the local keyring.
     """
-    try:
-        utils.console.print(f"Creating new agent named '{name}'...")
-        
-        client = deepsecure.Client()
-        # The agent method with auto_create=True handles the entire workflow.
-        agent = client.agent(name, auto_create=True)
+    is_json_output = output.lower() == "json"
 
-        if output.lower() == "json":
-            # We need to fetch the full agent details for a complete JSON output
-            # The agent handle itself is minimal.
-            agent_details = client._agent_client.describe_agent(agent.id)
-            utils.print_json(agent_details)
+    if not is_json_output:
+        utils.console.print(f"Creating new agent named [green]'{name}'[/green][yellow]...[/yellow]")
+
+    try:
+        # Get a properly configured client instance.
+        client = deepsecure.Client(silent_mode=is_json_output)
+
+        # The public API for creating an agent handles key generation and storage.
+        # This returns a resource object which is easier to work with.
+        agent = client.agents.create(name=name, description=description)
+
+        if is_json_output:
+            # The agent object has enough info for json output
+            agent_dict = agent.to_dict()
+            # We need to retrieve the private key from the identity manager to return it
+            private_key = client._identity_manager.get_private_key(agent.id)
+            agent_dict["private_key"] = private_key
+            utils.print_json(agent_dict)
         else:
             utils.print_success(f"Agent '{agent.name}' created successfully.")
-            utils.console.print(f"  Agent ID: [bold]{agent.id}[/bold]")
-            utils.console.print(f"  Name: {agent.name}")
-            utils.console.print("[green]Identity created and private key stored securely in system keyring.[/green]")
+            utils.console.print(f"  [bold]Agent ID:[/bold] {agent.id}")
+            # Do not print the private key in normal output
+            utils.console.print(f"  [bold]Public Key:[/bold] {agent.public_key}")
+            utils.console.print("[yellow]The agent's private key has been stored securely in your OS keyring.[/yellow]")
 
-    except deepsecure.DeepSecureError as e:
-        utils.print_error(f"Failed to create agent: {e}")
-        raise typer.Exit(code=1)
     except Exception as e:
-        utils.print_error(f"An unexpected error occurred: {e}")
+        utils.print_error(f"Failed to create agent: {e}")
         raise typer.Exit(code=1)
 
 # --- List Command ---
@@ -66,7 +75,10 @@ def list_agents(
         client = deepsecure.Client()
         
         utils.console.print("Fetching agents from the backend...")
-        agents = client.list_agents()
+        # client.agents is an AgentClient instance that has list_agents() method
+        agent_response = client.agents.list_agents()
+        # Extract the agents list from the response dictionary
+        agents = agent_response.get("agents", [])
 
         if not agents:
             utils.console.print("No agents found.")
@@ -115,7 +127,7 @@ def describe_agent(
     try:
         client = deepsecure.Client()
         utils.console.print(f"Fetching details for agent [bold]{agent_id}[/bold]...")
-        agent = client.describe_agent(agent_id=agent_id)
+        agent = client.agents.describe_agent(agent_id=agent_id)
 
         if not agent:
             utils.print_error(f"Agent with ID '{agent_id}' not found.")
@@ -161,7 +173,7 @@ def delete_agent(
         client = deepsecure.Client()
         utils.console.print(f"Deleting agent [bold]{agent_id}[/bold]...")
         
-        client.delete_agent(agent_id=agent_id)
+        client.agents.delete_agent(agent_id=agent_id)
         
         utils.print_success(f"Agent {agent_id} has been deleted successfully.")
 
@@ -187,15 +199,14 @@ def cleanup_agents():
         client = get_client()
         
         # Get all agents from backend
-        agents = client.list_agents()
+        agents = client.agents.list_agents()
         
         if not agents:
             utils.console.print("No agents found in backend.")
             return
         
-        # Check keychain for each agent
-        from deepsecure._core.identity_manager import IdentityManager
-        identity_mgr = IdentityManager()  # Keep verbose output - it's helpful!
+        # We can get the identity_manager from the client
+        identity_mgr = client._identity_manager
         
         # Build agent status table
         table_data = []
@@ -213,7 +224,7 @@ def cleanup_agents():
             
             # Check if private key exists in keychain
             try:
-                private_key = identity_mgr.get_private_key(agent_id)
+                private_key = identity_mgr.get_identity(agent_id) # Use get_identity which is the public method
                 if private_key:
                     key_status = "✓ Present"
                     agents_with_keys += 1

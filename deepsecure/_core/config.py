@@ -9,7 +9,8 @@ CONFIG_DIR = Path.home() / ".deepsecure"
 CONFIG_FILE_PATH = CONFIG_DIR / "config.toml"
 
 # Service names for keyring
-CREDSERVICE_URL_KEY = "credservice_url"
+DEEPTRAIL_CONTROL_URL_KEY = "deeptrail_control_url"
+DEEPTRAIL_GATEWAY_URL_KEY = "deeptrail_gateway_url"
 API_TOKEN_KEY = "api_token"
 LOG_LEVEL_KEY = "cli_log_level"
 
@@ -30,17 +31,29 @@ def save_config(config_data: Dict[str, Any]):
     with open(CONFIG_FILE_PATH, "w") as f:
         toml.dump(config_data, f)
 
-def get_credservice_url() -> Optional[str]:
-    """Gets the CredService URL from the config file."""
+def get_deeptrail_control_url() -> Optional[str]:
+    """Gets the Deeptrail Control URL from the config file."""
     config = load_config()
-    return config.get(CREDSERVICE_URL_KEY)
+    return config.get(DEEPTRAIL_CONTROL_URL_KEY)
 
-def set_credservice_url(url: str):
-    """Sets the CredService URL in the config file."""
+def set_deeptrail_control_url(url: str):
+    """Sets the Deeptrail Control URL in the config file."""
     config = load_config()
-    config[CREDSERVICE_URL_KEY] = url
+    config[DEEPTRAIL_CONTROL_URL_KEY] = url
     save_config(config)
-    print(f"CredService URL set to: {url}")
+    print(f"Deeptrail Control URL set to: {url}")
+
+def get_deeptrail_gateway_url() -> Optional[str]:
+    """Gets the Deeptrail Gateway URL from the config file."""
+    config = load_config()
+    return config.get(DEEPTRAIL_GATEWAY_URL_KEY)
+
+def set_deeptrail_gateway_url(url: str):
+    """Sets the Deeptrail Gateway URL in the config file."""
+    config = load_config()
+    config[DEEPTRAIL_GATEWAY_URL_KEY] = url
+    save_config(config)
+    print(f"Deeptrail Gateway URL set to: {url}")
 
 def get_cli_log_level() -> str:
     """Gets the CLI log level from the config file, defaults to WARNING."""
@@ -99,20 +112,37 @@ def delete_api_token():
         print(f"An unexpected error occurred while deleting the API token: {e}")
 
 # For CLI usage, we might want to retrieve these combined or with fallbacks
-def get_effective_credservice_url() -> Optional[str]:
+def get_effective_deeptrail_control_url() -> str | None:
     """
-    Gets the CredService URL, preferring environment variable, then config file.
+    Returns the effective Deeptrail Control URL, checking env vars first, then config file.
+    
+    Phase 1 Note: This is the primary URL for all CLI and SDK operations.
+    Returns None if no configuration is found.
     """
-    url = os.getenv("DEEPSECURE_CREDSERVICE_URL")
-    if url:
-        return url
-    return get_credservice_url()
+    url = os.environ.get("DEEPSECURE_DEEPTRAIL_CONTROL_URL")
+    if not url:
+        # Check config file
+        url = get_deeptrail_control_url()
+    return url
+
+def get_effective_deeptrail_gateway_url() -> str | None:
+    """
+    Returns the effective Deeptrail Gateway URL, checking env vars.
+    
+    Phase 1 Note: CLI and SDK operations route directly to deeptrail-control.
+    Gateway URL is only used for configuration storage and future Phase 2 implementation.
+    """
+    gateway_url = os.environ.get("DEEPSECURE_DEEPTRAIL_GATEWAY_URL")
+    if not gateway_url:
+        # Check config file
+        gateway_url = get_deeptrail_gateway_url()
+    return gateway_url
 
 def get_effective_api_token() -> Optional[str]:
     """
     Gets the API Token, preferring environment variable, then keyring.
     """
-    token = os.getenv("DEEPSECURE_CREDSERVICE_API_TOKEN")
+    token = os.getenv("DEEPSECURE_DEEPTRAIL_CONTROL_API_TOKEN")
     if token:
         return token
     return get_api_token() 

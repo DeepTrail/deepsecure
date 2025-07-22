@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deepsecure"
-version = "0.1.9"
+version = "0.1.10"
 authors = [
   { name="DeepSecure Team", email="mahendra@deeptrail.com" },
 ]
@@ -106,7 +106,7 @@ package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["tests*", "credservice*"]
+exclude = ["tests*", "deeptrail-control*"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

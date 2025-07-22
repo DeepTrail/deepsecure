@@ -14,6 +14,11 @@ import logging
 import sys
 from rich.theme import Theme
 from rich.logging import RichHandler
+from rich.panel import Panel
+from functools import wraps
+import functools
+
+from .exceptions import DeepSecureClientError, DeepSecureError
 
 # Central console objects for consistent output
 console = Console()
@@ -79,8 +84,8 @@ def setup_logging(level_str: Optional[str] = None):
     # console.print(f"[DEBUG] Logging initialized with level: {log_level_to_set} ({numeric_level})", style="debug") # For verifying setup
 
 def print_success(message: str):
-    """Prints a formatted success message to the console."""
-    console.print(f"✅ Success: {message}", style="success")
+    """Prints a success message to the console."""
+    console.print(Panel(f"✅ {message}", style="bold green", expand=False))
 
 def print_error(message: str, exit_code: Optional[int] = None):
     """Prints a formatted error message to stderr and optionally exits.
@@ -237,5 +242,22 @@ def get_client():
     # Import here to avoid circular imports
     from .client import Client
     return Client()
+
+def handle_api_error(func):
+    """Decorator to catch and handle API errors gracefully."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except DeepSecureClientError as e:
+            print_error(f"API Error: {e}")
+            raise typer.Exit(code=1)
+        except DeepSecureError as e:
+            print_error(f"A general error occurred: {e}")
+            raise typer.Exit(code=1)
+        except Exception as e:
+            print_error(f"An unexpected error occurred: {e}")
+            raise typer.Exit(code=1)
+    return wrapper
 
 # TODO: Add more utility functions as needed (e.g., table rendering, file handling). 

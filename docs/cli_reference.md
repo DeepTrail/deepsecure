@@ -1,6 +1,6 @@
 # DeepSecure CLI Command Reference
 
-Welcome to the command-line interface (CLI) reference for DeepSecure. The `deepsecure` CLI is the primary tool for administrators and developers to manage agent identities, secrets, and access control policies in the `credservice` backend.
+Welcome to the command-line interface (CLI) reference for DeepSecure. The `deepsecure` CLI is the primary tool for administrators and developers to manage agent identities, secrets, and access control policies in the `deeptrail-control` backend.
 
 ## Global Options
 
@@ -11,17 +11,17 @@ Welcome to the command-line interface (CLI) reference for DeepSecure. The `deeps
 
 ## `deepsecure configure`
 
-Commands for setting up the CLI's connection to the `credservice`.
+Commands for setting up the CLI's connection to the `deeptrail-control`.
 
 ### `deepsecure configure set-url <URL>`
 
-Sets and saves the URL for the `credservice` API endpoint.
+Sets and saves the URL for the `deeptrail-control` API endpoint.
 
-- **`URL`**: The full URL of the `credservice` (e.g., `http://localhost:8001`).
+- **`URL`**: The full URL of the `deeptrail-control` (e.g., `http://localhost:8001`).
 
 ### `deepsecure configure set-token`
 
-Securely prompts for and saves the API authentication token required to communicate with `credservice`.
+Securely prompts for and saves the API authentication token required to communicate with `deeptrail-control`.
 
 ---
 
@@ -42,7 +42,7 @@ Lists all agent identities that have been created locally.
 
 ### `deepsecure agent delete --name <AGENT_NAME>`
 
-Deletes an agent identity from the `credservice` backend and removes its private key from the local OS keyring.
+Deletes an agent identity from the `deeptrail-control` backend and removes its private key from the local OS keyring.
 
 -   **`--name <AGENT_NAME>`** (Required): The name of the agent to delete.
 -   **`--force`**: (Optional) Skips the confirmation prompt.
@@ -51,7 +51,7 @@ Deletes an agent identity from the `credservice` backend and removes its private
 
 ## `deepsecure vault`
 
-Commands for managing secrets stored securely in the `credservice` vault.
+Commands for managing secrets stored securely in the `deeptrail-control` vault.
 
 ### `deepsecure vault store <SECRET_NAME>`
 
