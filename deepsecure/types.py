@@ -1,24 +1,23 @@
 # deepsecure/types.py
 from dataclasses import dataclass, field
-from datetime import datetime
+from typing import Optional
 
 @dataclass
 class Secret:
     """
-    A secure container for a fetched secret value and its metadata.
+    Represents the result of a successful, proxied API call for a secret.
 
-    The actual secret value is stored in a private attribute (`_value`)
-    and is not displayed in the default representation of the object to
-    prevent accidental logging or printing.
+    The actual response body from the downstream service is stored in a private 
+    attribute (`_response_body`) and is not displayed in the default 
+    representation of the object to prevent accidental logging of sensitive data.
     """
     name: str
-    expires_at: datetime
-    _value: str = field(repr=False)
+    _response_body: str = field(repr=False)
 
     @property
     def value(self) -> str:
-        """The actual secret value."""
-        return self._value
+        """The response body from the downstream service call."""
+        return self._response_body
 
     def __str__(self) -> str:
-        return f"Secret(name='{self.name}', expires_at='{self.expires_at.isoformat()}', value='**********')" 
+        return f"Secret(name='{self.name}', value='(response body held securely)')" 

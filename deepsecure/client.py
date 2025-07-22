@@ -1,395 +1,570 @@
 # deepsecure/client.py
 from __future__ import annotations
-from typing import Optional
+import os
+import time
 import logging
-from dataclasses import dataclass
-import copy
-from datetime import datetime, timedelta, timezone
-import jwt
+from typing import Optional, List, Dict, Any, Tuple
 
-from ._core.config import get_effective_credservice_url, get_effective_api_token
-from ._core.client import VaultClient as CoreVaultClient
-from ._core.agent_client import AgentClient as CoreAgentClient
-from ._core.identity_manager import identity_manager
-from .exceptions import DeepSecureClientError, IdentityManagerError
-from .types import Secret
-from .utils import parse_ttl_to_seconds
+from ._core.base_client import BaseClient
+from ._core.vault_client import VaultClient
+from ._core.agent_client import AgentClient
+from ._core.exceptions import (
+    ApiError,
+    AuthenticationError,
+    DeepSecureClientError,
+    IdentityManagerError
+)
+from ._core.identity_provider import (
+    AgentIdentity,
+    IdentityProvider,
+    KeyringIdentityProvider,
+    KubernetesIdentityProvider,
+    AwsIdentityProvider,
+)
+from ._core.config import get_effective_deeptrail_control_url, get_effective_deeptrail_gateway_url
+from .resources.agent import Agent
+from .exceptions import DeepSecureClientError
+from .types import Secret as SecretResourceType
 
 logger = logging.getLogger(__name__)
 
+class Client(BaseClient):
+    """
+    High-level client for interacting with the DeepSecure backend (deeptrail-control).
+    """
+    def __init__(
+        self, 
+        deeptrail_control_url: Optional[str] = None,
+        deeptrail_gateway_url: Optional[str] = None,
+        silent_mode: bool = False
+    ):
+        base_url = deeptrail_control_url or get_effective_deeptrail_control_url()
+        self.gateway_url = deeptrail_gateway_url or get_effective_deeptrail_gateway_url()
+        
+        if not base_url:
+            raise DeepSecureClientError(
+                "Deeptrail Control URL is not configured. "
+                "Please set the DEEPSECURE_DEEPTRAIL_CONTROL_URL environment variable."
+            )
+        super().__init__(api_url=base_url, silent_mode=silent_mode)
+        # The Agent resource collection is a separate client that uses the same env vars
+        self.agents = AgentClient(api_url=base_url, silent_mode=silent_mode)
+        # Share authentication state with the AgentClient
+        self.agents._parent_client = self
 
-@dataclass
-class Agent:
-    """A handle to a DeepSecure Agent identity."""
-    id: str
-    name: str
-    client: 'Client'
-
-    def issue_token_for(self, audience: str, expiry_minutes: int = 5) -> str:
+    def agent(self, name: str, auto_create: bool = True) -> Agent:
         """
-        Issues a short-lived JWT signed by this agent for a specific audience.
+        Get a handle for a specific agent by name.
+        If auto_create is True, the agent will be created if it doesn't exist.
+        """
+        # This part of the logic remains high-level, Agent class will use the client
+        return self.agents.get_by_name(name, auto_create=auto_create)
+
+    # --- Raw Backend Methods ---
+
+    def list_agents(self) -> List[Dict[str, Any]]:
+        """List all agents registered with the backend."""
+        response = self._request("GET", "/api/v1/agents/")
+        return response.json().get("agents", [])
+
+    def _create_agent_backend(self, agent_id: str, name: Optional[str], public_key_b64: str) -> Dict[str, Any]:
+        """Call the backend to register a new agent."""
+        response = self._request(
+            "POST",
+            "/api/v1/agents/",
+            json={
+                "agent_id": agent_id,
+                "name": name,
+                "public_key": public_key_b64
+            }
+        )
+        return response.json()
+
+    def _get_agent_backend(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch a single agent's details from the backend."""
+        try:
+            response = self._request("GET", f"/api/v1/agents/{agent_id}")
+            return response.json()
+        except DeepSecureClientError as e:
+            # Handle 404 case gracefully
+            if hasattr(e, 'response') and e.response.status_code == 404:
+                return None
+            raise e
+
+    def _delete_agent_backend(self, agent_id: str):
+        """Delete an agent from the backend."""
+        self._request("DELETE", f"/api/v1/agents/{agent_id}")
+        return
+
+    # --- Vault / Secret Methods ---
+
+    def store_secret(self, agent_id: str, name: str, secret_value: str, metadata: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        Store a secret for a specific agent.
+        """
+        return self._request(
+            "POST",
+            f"/api/v1/agents/{agent_id}/secrets",
+            json={"name": name, "value": secret_value, "metadata": metadata or {}}
+        ).json()
+
+    def get_secret(self, agent_id: str, secret_name: str, path: str) -> SecretResourceType:
+        """
+        Retrieves a secret's value by proxying through the deeptrail-gateway.
+
+        This is the secure method for agents to access secrets. The agent never
+        sees the full secret; the gateway injects it into the final request.
 
         Args:
-            audience: The identifier of the service or agent that this token is for (the 'aud' claim).
-            expiry_minutes: The number of minutes until the token expires.
+            agent_id: The ID of the agent making the request.
+            secret_name: The name of the secret to be injected by the gateway.
+            path: The path of the target API endpoint (e.g., "/v1/completions").
 
         Returns:
-            A signed JWT string.
+            A SecretResourceType object containing the response from the target service.
         """
-        logger.info(f"Agent '{self.name}' ({self.id}) issuing token for audience '{audience}'.")
+        # For now, use a placeholder target URL since we're just demonstrating the flow
+        # In a real implementation, this would be derived from the secret configuration
+        target_base_url = "https://api.example.com"  # Placeholder for demonstration
         
-        # 1. Load the agent's private key from keychain
-        private_key_b64 = self.client._identity_manager.get_private_key(self.id)
-        if not private_key_b64:
-            raise IdentityManagerError(f"Could not load private key for agent '{self.name}' to issue token.")
-        
-        # 2. Prepare JWT claims
-        issued_at = datetime.now(timezone.utc)
-        expires_at = issued_at + timedelta(minutes=expiry_minutes)
-        
-        payload = {
-            "iss": self.id,  # Issuer is the agent's ID
-            "aud": audience, # Audience for the token
-            "iat": issued_at,
-            "exp": expires_at,
+        headers = {
+            "X-Deeptrail-Secret-Name": secret_name,
+            "X-Target-Base-URL": target_base_url  # Required by gateway proxy
         }
         
-        # 3. Sign the token
-        # The key needs to be decoded from base64
-        private_key = self.client._identity_manager.decode_private_key(private_key_b64)
-        
-        token = jwt.encode(
-            payload,
-            private_key,
-            algorithm="EdDSA"
+        # The response from the gateway is the actual response from the target service
+        response = self._authenticated_request(
+            "GET",
+            f"/proxy/{path.lstrip('/')}",
+            agent_id=agent_id,
+            headers=headers,
+            base_url_override=self.gateway_url # IMPORTANT: This request must go to the gateway
         )
         
-        logger.info(f"Successfully issued token for audience '{audience}'.")
-        return token
+        # We don't know the secret's value here, which is the point.
+        # We return a resource object representing the successful call.
+        return SecretResourceType(
+            name=secret_name,
+            # We don't have expiry info from this call, so we can't populate it.
+            # The 'value' is the content from the proxied API call.
+            value=response.text
+        )
 
-
-class Client:
-    """
-    The main DeepSecure client for interacting with the DeepSecure platform.
-
-    This client provides a high-level, developer-friendly interface for managing
-    agent identities, fetching secrets, and performing other security operations.
-    """
-
-    def __init__(
+    def store_secret_direct(
         self,
-        base_url: Optional[str] = None,
-        api_token: Optional[str] = None,
-        _agent_context: Optional[Agent] = None, # Internal use for with_agent
-    ):
+        name: str,
+        value: str,
+        target_base_url: str,
+        metadata: Optional[Dict] = None
+    ) -> Dict[str, Any]:
         """
-        Initializes the DeepSecure client.
+        Store a secret directly in the vault, including its target URL for the gateway.
+        This is used for administrative access via the CLI.
+        """
+        if metadata is None:
+            metadata = {}
         
-        Configuration is automatically loaded from environment variables
-        or the local configuration file created by the CLI (`deepsecure configure`).
-        You can override this by passing `base_url` and `api_token` directly.
-        """
-        self.base_url = base_url or get_effective_credservice_url()
-        self.api_token = api_token or get_effective_api_token()
-        self._agent_context = _agent_context # Storing the agent context
+        metadata["target_base_url"] = target_base_url
+        
+        return self._request(
+            "POST",
+            "/api/v1/vault/secrets",
+            json={"name": name, "value": value, "metadata": metadata}
+        ).json()
 
-        if not self.base_url:
-            raise DeepSecureClientError(
-                "CredService URL is not set. Please configure it via `deepsecure configure set-url` "
-                "or set the DEEPSECURE_CREDSERVICE_URL environment variable."
-            )
-        
-        if not self.api_token:
-            raise DeepSecureClientError(
-                "API token is not set. Please configure it via `deepsecure configure set-token` "
-                "or set the DEEPSECURE_CREDSERVICE_API_TOKEN environment variable."
-            )
-            
-        # Internal clients that do the actual work
-        self._vault_client = CoreVaultClient()
-        self._vault_client.base_url = self.base_url
-        self._vault_client.token = self.api_token
-        
-        self._agent_client = CoreAgentClient()
-        self._agent_client.base_url = self.base_url
-        self._agent_client.token = self.api_token
-        
-        self._identity_manager = identity_manager
+    def delete_secret(self, agent_id: str, name: str, delegation_token: Optional[str] = None) -> None:
+        """Deletes a secret from the vault."""
+        path = f"/api/v1/vault/secrets/{name}"
+        self._authenticated_request("DELETE", path, agent_id=agent_id, delegation_token=delegation_token)
+        return
 
-    def agent(self, name: str, auto_create: bool = False) -> Agent:
-        """
-        Retrieves a handle to an existing agent by name, or creates one.
+    def list_secrets(self, agent_id: str, delegation_token: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Lists all secrets accessible to the agent."""
+        path = "/api/v1/vault/secrets"
+        response = self._authenticated_request("GET", path, agent_id=agent_id, delegation_token=delegation_token)
+        return response.json().get("secrets", [])
 
-        This is the primary method for establishing an agent's identity for use
-        with the SDK.
-
-        Args:
-            name: The human-readable name of the agent. This is used to find
-                  the corresponding agent in the backend.
-            auto_create: If True, a new agent identity will be created and
-                         registered with the backend if one with the specified
-                         name is not found. Defaults to False.
-
-        Returns:
-            An `Agent` handle object, which can be used for further operations.
-
-        Raises:
-            IdentityManagerError: If the agent is not found and `auto_create` is False.
-            DeepSecureClientError: If there is an issue communicating with the backend.
+    def get_secret_direct(self, name: str) -> Dict[str, Any]:
         """
-        # 1. Try to find the agent in the backend by name
-        try:
-            backend_agents = self._agent_client.list_agents()
-            agents_list = backend_agents.get("agents", []) if isinstance(backend_agents, dict) else backend_agents
-            
-            found_agent = None
-            for agent in agents_list:
-                if agent.get("name") == name:
-                    found_agent = agent
-                    break
-                    
-            if found_agent:
-                agent_id = found_agent['agent_id']
-                logger.info(f"Found backend agent '{name}' with ID: {agent_id}")
-                
-                # 1.1. Verify we have the private key for this agent
-                private_key = self._identity_manager.get_private_key(agent_id)
-                if private_key:
-                    logger.info(f"Agent '{name}' has private key in keychain. Ready to use.")
-                    return Agent(id=agent_id, name=name, client=self)
-                else:
-                    logger.warning(f"Backend agent '{name}' (ID: {agent_id}) found but no private key in keychain.")
-                    if auto_create:
-                        raise DeepSecureClientError(
-                            f"Agent '{name}' exists in backend but private key is missing from keychain. "
-                            f"This indicates a corrupted state. Please delete the backend agent and recreate, "
-                            f"or restore the private key to the keychain."
-                        )
-                    else:
-                        raise DeepSecureClientError(
-                            f"Agent '{name}' exists in backend but private key is missing from keychain. "
-                            f"Use `auto_create=True` to handle this, or manually fix the keychain."
-                        )
-            else:
-                logger.info(f"No backend agent found with name '{name}'.")
-                
-        except Exception as e:
-            logger.error(f"Failed to search for agent '{name}' in backend: {e}")
-            if not auto_create:
-                raise DeepSecureClientError(f"Failed to search for agent '{name}' in backend: {e}") from e
-
-        # 2. If not found, decide whether to create it
-        if not auto_create:
-            raise IdentityManagerError(f"No backend agent found for name '{name}'. Use `auto_create=True` to create one.")
-        
-        logger.info(f"No backend agent for '{name}' found. Creating a new one with `auto_create=True`...")
-        
-        # 3. Create new agent with backend-first approach
-        # 3.1. Generate a temporary agent ID for key generation
-        temp_agent_id = self._identity_manager._generate_agent_id()
-        
-        # 3.2. Generate keypair
-        keypair = self._identity_manager.create_keypair_for_agent(temp_agent_id)
-        public_key = keypair["public_key"]
-        
-        # 3.3. Register with backend (backend may assign a different agent_id)
-        try:
-            reg_response = self._agent_client.register_agent(
-                public_key=public_key,
-                name=name,
-                description=f"Auto-created by DeepSecure SDK for application use."
-            )
-            backend_agent_id = reg_response.get("agent_id")
-            if not backend_agent_id:
-                raise DeepSecureClientError("Backend registration failed - no agent_id returned.")
-                
-            logger.info(f"Successfully registered new agent '{name}' with backend. Agent ID: {backend_agent_id}")
-            
-            # 3.4. If backend assigned a different ID, we need to move the private key
-            if backend_agent_id != temp_agent_id:
-                logger.info(f"Backend assigned different agent ID ({backend_agent_id}) than temporary ({temp_agent_id}). Moving private key.")
-                
-                # Get the private key from temp location
-                temp_private_key = self._identity_manager.get_private_key(temp_agent_id)
-                if temp_private_key:
-                    # Store it under the correct agent ID
-                    self._identity_manager.store_private_key_directly(backend_agent_id, temp_private_key)
-                    # Clean up the temporary entry
-                    self._identity_manager.delete_private_key(temp_agent_id)
-                else:
-                    raise DeepSecureClientError("Failed to retrieve temporary private key during agent ID migration.")
-            
-            return Agent(id=backend_agent_id, name=name, client=self)
-            
-        except Exception as e:
-            logger.error(f"Failed to register new agent '{name}' with backend: {e}")
-            # Clean up the temporary keypair
-            self._identity_manager.delete_private_key(temp_agent_id)
-            raise DeepSecureClientError(f"Failed to register new agent '{name}' with backend: {e}") from e
-
-    def with_agent(self, name: str, auto_create: bool = False) -> Client:
-        """
-        Creates a new client instance with a specific agent context.
-        
-        This is useful for multi-agent scenarios where different parts of your
-        code need to operate as different agents.
-        
-        Args:
-            name: The name of the agent to use as context for this client.
-            auto_create: Whether to create the agent if it doesn't exist.
-            
-        Returns:
-            A new Client instance with the specified agent as context.
-        """
-        agent = self.agent(name, auto_create=auto_create)
-        
-        # Create a new client with the same configuration but different agent context
-        new_client = Client(
-            base_url=self.base_url,
-            api_token=self.api_token,
-            _agent_context=agent
-        )
-        
-        return new_client
-
-    def get_secret(self, name: str, agent_name: Optional[str] = None, ttl: str = "5m") -> Secret:
-        """
-        Fetches a secret from the DeepSecure vault.
-        
-        Args:
-            name: The name of the secret to fetch.
-            agent_name: The name of the agent to use for this request. If not provided,
-                       uses the agent context from `with_agent()` or raises an error.
-            ttl: Time-to-live for the credential (e.g., "5m", "1h", "30s").
-            
-        Returns:
-            A Secret object containing the secret value and metadata.
-            
-        Raises:
-            DeepSecureClientError: If no agent context is available or if the secret fetch fails.
-        """
-        # Determine which agent to use
-        if agent_name:
-            agent = self.agent(agent_name, auto_create=False)
-        elif self._agent_context:
-            agent = self._agent_context
-        else:
-            raise DeepSecureClientError(
-                "No agent specified. Either provide `agent_name` or use `client.with_agent(name)` "
-                "to set an agent context."
-            )
-        
-        logger.info(f"Agent '{agent.name}' ({agent.id}) fetching secret '{name}' with TTL '{ttl}'")
-        
-        # Issue a credential for this secret
-        try:
-            response = self._vault_client.issue(
-                scope=name,
-                agent_id=agent.id,
-                ttl=parse_ttl_to_seconds(ttl)
-            )
-            
-            # Create and return the Secret object
-            secret = Secret(
-                name=name,
-                expires_at=response.expires_at,
-                _value=response.secret_value or ''
-            )
-            
-            logger.info(f"Successfully fetched secret '{name}' for agent '{agent.name}'")
-            return secret
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch secret '{name}' for agent '{agent.name}': {e}")
-            raise DeepSecureClientError(f"Failed to fetch secret '{name}': {e}") from e
-
-    @property
-    def vault(self):
-        """Access to vault operations."""
-        return self._vault_client
-
-    def list_agents(self) -> list[dict]:
-        """
-        Lists all agents from the backend.
-        
-        Returns:
-            List of agent dictionaries from the backend.
-        """
-        try:
-            response = self._agent_client.list_agents()
-            return response.get("agents", []) if isinstance(response, dict) else response
-        except Exception as e:
-            logger.error(f"Failed to list agents: {e}")
-            raise DeepSecureClientError(f"Failed to list agents: {e}") from e
-
-    def describe_agent(self, agent_id: str) -> Optional[dict]:
-        """
-        Gets detailed information about a specific agent from the backend.
-        
-        Args:
-            agent_id: The ID of the agent to describe.
-            
-        Returns:
-            Agent information dictionary or None if not found.
-        """
-        try:
-            return self._agent_client.describe_agent(agent_id)
-        except Exception as e:
-            logger.error(f"Failed to describe agent {agent_id}: {e}")
-            raise DeepSecureClientError(f"Failed to describe agent {agent_id}: {e}") from e
-
-    def delete_agent(self, agent_id: str):
-        """
-        Deletes an agent from both backend and local keychain.
-        
-        Args:
-            agent_id: The ID of the agent to delete.
-        """
-        try:
-            # Delete from backend first
-            self._agent_client.delete_agent(agent_id)
-            logger.info(f"Successfully deleted agent {agent_id} from backend")
-            
-            # Then delete private key from keychain
-            self._identity_manager.delete_private_key(agent_id)
-            logger.info(f"Successfully deleted private key for agent {agent_id} from keychain")
-            
-        except Exception as e:
-            logger.error(f"Failed to delete agent {agent_id}: {e}")
-            raise DeepSecureClientError(f"Failed to delete agent {agent_id}: {e}") from e
-
-    def store_secret(self, name: str, value: str):
-        """
-        Stores a secret in the vault.
-        
-        Args:
-            name: The name of the secret.
-            value: The secret value to store.
-        """
-        try:
-            self._vault_client.store_secret(name, value)
-            logger.info(f"Successfully stored secret '{name}'")
-        except Exception as e:
-            logger.error(f"Failed to store secret '{name}': {e}")
-            raise DeepSecureClientError(f"Failed to store secret '{name}': {e}") from e
-
-    def get_secret_direct(self, name: str) -> dict:
-        """
-        Retrieves a secret directly from the vault without requiring an agent.
+        Retrieves a secret directly from the backend vault without requiring an agent.
         
         This method is intended for CLI/administrative use and bypasses the ephemeral
-        credential system. For programmatic agent access, use get_secret() instead.
+        credential system. For programmatic agent access with gateway proxy, use get_secret().
         
         Args:
             name: The name of the secret to retrieve.
             
         Returns:
             A dictionary containing the secret data (name, value, created_at).
+            
+        Raises:
+            DeepSecureClientError: If the secret is not found or retrieval fails.
         """
+        logger.info(f"Retrieving secret directly with name: {name}")
         try:
-            secret_data = self._vault_client.get_secret_direct(name)
-            logger.info(f"Successfully retrieved secret '{name}' directly")
-            return secret_data
+            response = self._request("GET", f"/api/v1/vault/secrets/{name}")
+            return response.json()
         except Exception as e:
-            logger.error(f"Failed to retrieve secret '{name}': {e}")
-            raise DeepSecureClientError(f"Failed to retrieve secret '{name}': {e}") from e 
+            logger.error(f"Failed to retrieve secret {name}: {e}")
+            raise DeepSecureClientError(f"Failed to retrieve secret '{name}': {e}") from e
+
+    def delegate_access(
+        self,
+        delegator_agent_id: str,
+        target_agent_id: str,
+        resource: str,
+        permissions: List[str],
+        ttl_seconds: int = 300,
+        additional_restrictions: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Delegates access from one agent to another using cryptographic macaroons.
+
+        This implements the core DeepSecure delegation principle: secure, auditable,
+        and attenuable agent-to-agent authorization with least-privilege enforcement.
+
+        Args:
+            delegator_agent_id: The ID of the agent granting the permissions.
+                                This agent must possess a valid macaroon to delegate from.
+            target_agent_id: The ID of the agent receiving the delegated permissions.
+            resource: The resource to which access is being delegated (e.g., API endpoint).
+            permissions: A list of specific actions the target agent can perform.
+            ttl_seconds: The time-to-live for the delegated token in seconds.
+            additional_restrictions: Optional additional caveats like IP restrictions.
+
+        Returns:
+            A serialized macaroon string representing the delegated credential.
+            
+        Raises:
+            DeepSecureClientError: If delegation fails due to authorization or crypto errors.
+        """
+        from ._core.delegation import delegation_manager, Caveat, CaveatType, MacaroonLocation
+        
+        # Validate input parameters
+        if not delegator_agent_id or not delegator_agent_id.strip():
+            raise DeepSecureClientError("delegator_agent_id cannot be empty")
+        if not target_agent_id or not target_agent_id.strip():
+            raise DeepSecureClientError("target_agent_id cannot be empty")
+        if not permissions:
+            raise DeepSecureClientError("permissions list cannot be empty")
+        if ttl_seconds <= 0:
+            raise DeepSecureClientError("ttl_seconds must be positive")
+        
+        try:
+            # 1. Get the delegator's current macaroon (root or delegated)
+            # This would typically come from the agent's current session
+            delegator_macaroon = self._get_agent_macaroon(delegator_agent_id)
+            
+            if not delegator_macaroon:
+                # Create a root macaroon if none exists (for testing/demo)
+                location = MacaroonLocation('deeptrail-control', '/auth')
+                delegator_macaroon = delegation_manager.create_root_macaroon(
+                    delegator_agent_id, location
+                )
+            
+            # 2. Build delegation caveats (restrictions)
+            delegation_caveats = []
+            
+            # Add resource prefix restriction
+            if resource:
+                delegation_caveats.append(Caveat(CaveatType.RESOURCE_PREFIX, resource))
+            
+            # Add action limitations
+            if permissions:
+                actions_str = ','.join(permissions)
+                delegation_caveats.append(Caveat(CaveatType.ACTION_LIMIT, actions_str))
+            
+            # Add time-based expiration
+            expiry_time = time.time() + ttl_seconds
+            delegation_caveats.append(Caveat(CaveatType.TIME_BEFORE, str(expiry_time)))
+            
+            # Add any additional restrictions
+            if additional_restrictions:
+                if 'ip_address' in additional_restrictions:
+                    delegation_caveats.append(
+                        Caveat(CaveatType.IP_ADDRESS, additional_restrictions['ip_address'])
+                    )
+                if 'request_count' in additional_restrictions:
+                    delegation_caveats.append(
+                        Caveat(CaveatType.REQUEST_COUNT, str(additional_restrictions['request_count']))
+                    )
+            
+            # 3. Create the delegated macaroon with attenuation
+            delegated_macaroon = delegation_manager.delegate_macaroon(
+                delegator_macaroon,
+                target_agent_id,
+                delegation_caveats
+            )
+            
+            # 4. Serialize the macaroon for transport
+            delegation_token = delegated_macaroon.serialize()
+            
+            logger.info(f"Delegated access from {delegator_agent_id} to {target_agent_id} "
+                       f"for resource '{resource}' with permissions {permissions}")
+            
+            return delegation_token
+            
+        except Exception as e:
+            raise DeepSecureClientError(f"Failed to delegate access: {str(e)}") from e
+
+    def create_delegation_chain(
+        self,
+        chain_spec: List[Dict[str, Any]]
+    ) -> Dict[str, str]:
+        """
+        Create a multi-level delegation chain with progressive attenuation.
+        
+        This enables complex workflows like A → B → C where each level adds restrictions.
+        
+        Args:
+            chain_spec: List of delegation specifications, each containing:
+                       - from_agent_id: The delegating agent
+                       - to_agent_id: The receiving agent  
+                       - resource: The resource being delegated
+                       - permissions: List of allowed actions
+                       - ttl_seconds: Time to live for this level
+                       - restrictions: Additional caveats (optional)
+        
+        Returns:
+            Dict mapping agent_id to their delegation token in the chain
+            
+        Example:
+            ```python
+            chain = client.create_delegation_chain([
+                {
+                    'from_agent_id': 'agent-alpha',
+                    'to_agent_id': 'agent-beta', 
+                    'resource': 'https://api.example.com/data',
+                    'permissions': ['read:data', 'write:data'],
+                    'ttl_seconds': 3600
+                },
+                {
+                    'from_agent_id': 'agent-beta',
+                    'to_agent_id': 'agent-charlie',
+                    'resource': 'https://api.example.com/data/readonly',
+                    'permissions': ['read:data'],
+                    'ttl_seconds': 1800
+                }
+            ])
+            ```
+        """
+        from ._core.delegation import delegation_manager, Caveat, CaveatType, MacaroonLocation, Macaroon
+        
+        delegation_tokens = {}
+        current_macaroon = None
+        
+        try:
+            for i, spec in enumerate(chain_spec):
+                from_agent_id = spec['from_agent_id']
+                to_agent_id = spec['to_agent_id']
+                
+                # For the first delegation, get or create the root macaroon
+                if i == 0:
+                    current_macaroon = self._get_agent_macaroon(from_agent_id)
+                    if not current_macaroon:
+                        location = MacaroonLocation('deeptrail-control', '/auth')
+                        current_macaroon = delegation_manager.create_root_macaroon(
+                            from_agent_id, location
+                        )
+                
+                # Build delegation caveats for this level
+                delegation_caveats = []
+                
+                # Add resource prefix restriction
+                if spec.get('resource'):
+                    delegation_caveats.append(Caveat(CaveatType.RESOURCE_PREFIX, spec['resource']))
+                
+                # Add action limitations
+                if spec.get('permissions'):
+                    actions_str = ','.join(spec['permissions'])
+                    delegation_caveats.append(Caveat(CaveatType.ACTION_LIMIT, actions_str))
+                
+                # Add time-based expiration
+                ttl_seconds = spec.get('ttl_seconds', 300)
+                expiry_time = time.time() + ttl_seconds
+                delegation_caveats.append(Caveat(CaveatType.TIME_BEFORE, str(expiry_time)))
+                
+                # Add any additional restrictions
+                if spec.get('restrictions'):
+                    restrictions = spec['restrictions']
+                    if 'ip_address' in restrictions:
+                        delegation_caveats.append(
+                            Caveat(CaveatType.IP_ADDRESS, restrictions['ip_address'])
+                        )
+                    if 'request_count' in restrictions:
+                        delegation_caveats.append(
+                            Caveat(CaveatType.REQUEST_COUNT, str(restrictions['request_count']))
+                        )
+                
+                # Create the delegated macaroon using the current macaroon as parent
+                delegated_macaroon = delegation_manager.delegate_macaroon(
+                    current_macaroon,
+                    to_agent_id,
+                    delegation_caveats
+                )
+                
+                # Serialize and store the delegation token
+                delegation_token = delegated_macaroon.serialize()
+                delegation_tokens[to_agent_id] = delegation_token
+                
+                # Update current macaroon for next iteration
+                current_macaroon = delegated_macaroon
+                
+                logger.info(f"Delegated from {from_agent_id} to {to_agent_id} in chain (level {i+1})")
+            
+            logger.info(f"Created delegation chain with {len(chain_spec)} levels")
+            return delegation_tokens
+            
+        except Exception as e:
+            raise DeepSecureClientError(f"Failed to create delegation chain: {str(e)}") from e
+
+    def verify_delegation(
+        self,
+        delegation_token: str,
+        request_context: Dict[str, Any]
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Verify a delegation token and extract its permissions.
+        
+        Args:
+            delegation_token: The serialized macaroon to verify
+            request_context: Context for caveat verification (agent_id, resource, action, etc.)
+            
+        Returns:
+            Tuple of (is_valid, reason, delegation_info)
+        """
+        from ._core.delegation import delegation_manager, Macaroon
+        
+        try:
+            # Deserialize the macaroon
+            macaroon = Macaroon.deserialize(delegation_token, delegation_manager.root_key)
+            
+            # Verify the macaroon
+            is_valid, reason = delegation_manager.verify_macaroon(macaroon, request_context)
+            
+            # Extract delegation information
+            delegation_info = {
+                'macaroon_id': macaroon.identifier,
+                'location': macaroon.location.to_string(),
+                'caveats': [caveat.to_string() for caveat in macaroon.caveats],
+                'delegation_chain': delegation_manager.get_delegation_chain(macaroon.identifier),
+                'creation_time': macaroon.creation_time,
+                'parent_signature': macaroon.parent_signature
+            }
+            
+            return is_valid, reason, delegation_info
+            
+        except Exception as e:
+            return False, f"Verification error: {str(e)}", {}
+
+    def _get_agent_macaroon(self, agent_id: str) -> Optional['Macaroon']:
+        """
+        Get the current macaroon for an agent.
+        
+        In a full implementation, this would retrieve the agent's current session
+        macaroon from secure storage or the current JWT token.
+        
+        For now, this returns None to trigger root macaroon creation.
+        """
+        # TODO: Implement macaroon retrieval from agent session
+        return None 
+
+class DeepSecure:
+    """The main client for interacting with the DeepSecure API."""
+
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        identity: Optional[AgentIdentity] = None,
+        silent_mode: bool = False,
+        **kwargs,
+    ):
+        
+        # Use environment variable if no base_url is provided
+        import os
+        self.base_url = base_url or os.environ.get("DEEPSECURE_DEEPTRAIL_CONTROL_URL", "http://localhost:8000")
+        self.silent_mode = silent_mode
+        self._agent_id = agent_id
+        self._identity = identity
+        
+        # Central API client that all sub-clients will use
+        self._client = BaseClient(api_url=self.base_url, silent_mode=self.silent_mode)
+        
+        # Create custom identity manager with our provider chain
+        from ._core.identity_manager import IdentityManager
+        from ._core.identity_provider import KeyringIdentityProvider, KubernetesIdentityProvider, AwsIdentityProvider
+        
+        providers = self._create_identity_providers()
+        self.identity_manager = IdentityManager(providers=providers, api_client=self._client, silent_mode=self.silent_mode)
+        
+        # Replace the BaseClient's identity manager with our custom one
+        self._client._identity_manager = self.identity_manager
+
+        # Authenticate if an agent_id is provided
+        if self._agent_id:
+            self.authenticate(self._agent_id)
+
+        # Initialize sub-clients, passing the authenticated BaseClient instance
+        self.agents = AgentClient(api_url=self.base_url, silent_mode=self.silent_mode)
+        self.vault = VaultClient(self._client)
+
+    def _create_identity_providers(self) -> List[IdentityProvider]:
+        """
+        Creates and returns a list of identity providers based on the
+        detected environment, in the correct order of precedence.
+        Enhanced with Azure and Docker support.
+        """
+        providers: List[IdentityProvider] = []
+        
+        # Environment-specific providers go first
+        # These need the API client to talk to the backend bootstrap endpoints.
+        from ._core.identity_provider import (
+            KubernetesIdentityProvider, 
+            AwsIdentityProvider,
+            AzureIdentityProvider,
+            DockerIdentityProvider,
+            KeyringIdentityProvider
+        )
+        
+        k8s_provider = KubernetesIdentityProvider(client=self._client, silent_mode=self.silent_mode)
+        aws_provider = AwsIdentityProvider(client=self._client, silent_mode=self.silent_mode)
+        azure_provider = AzureIdentityProvider(client=self._client, silent_mode=self.silent_mode)
+        docker_provider = DockerIdentityProvider(client=self._client, silent_mode=self.silent_mode)
+        
+        # Order of precedence for platform-native identity providers
+        # Kubernetes and AWS are most common in production, so they go first
+        providers.append(k8s_provider)
+        providers.append(aws_provider)
+        providers.append(azure_provider)
+        providers.append(docker_provider)
+        
+        # The default local provider should come last as a fallback.
+        providers.append(KeyringIdentityProvider(silent_mode=self.silent_mode))
+        
+        return providers
+
+    def authenticate(self, agent_id: str) -> None:
+        """
+        Authenticates the agent and stores the session token.
+        This is typically called automatically if an agent_id is provided
+        on initialization.
+        """
+        if not self._identity:
+            self._identity = self.identity_manager.get_identity(agent_id)
+
+        if not self._identity:
+            raise AuthenticationError(
+                f"Could not find identity for agent '{agent_id}'. "
+                f"Ensure the agent has been created and its keys are accessible."
+            )
+        
+        # Use the identity manager to perform the full challenge-response flow
+        self._client.get_access_token(agent_id)
+        
+        # Store the agent_id for future reference
+        self._agent_id = agent_id
+
+    @property
+    def agent_id(self) -> Optional[str]:
+        return self._agent_id

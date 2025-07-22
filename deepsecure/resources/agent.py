@@ -1,9 +1,12 @@
 """
 Represents a single Agent resource.
 """
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 
 from .credential import Credential
+
+if TYPE_CHECKING:
+    from ..types import SecretResourceType
 
 # Forward reference for type hinting
 if False:
@@ -54,6 +57,37 @@ class Agent:
         # Convert the Pydantic model response to a dictionary and then
         # instantiate our high-level Credential resource object.
         return Credential(credential_data=credential_response.model_dump())
+
+    def get_secret(self, secret_name: str, path: str = "/") -> "SecretResourceType":
+        """
+        Retrieve a secret using this agent's identity.
+        
+        This is a convenience method that calls the main client's get_secret
+        method with this agent's ID automatically.
+        
+        Args:
+            secret_name: The name of the secret to retrieve
+            path: The path for the secret request (default: "/")
+            
+        Returns:
+            The secret resource from the main client
+        """
+        return self._client_ref._parent_client.get_secret(
+            agent_id=self.id,
+            secret_name=secret_name,
+            path=path
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Returns the agent's data as a dictionary."""
+        return {
+            "agent_id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "status": self.status,
+            "created_at": self.created_at,
+            "public_key": self.public_key,
+        }
 
     def __repr__(self):
         return f"<Agent(id='{self.id}', name='{self.name}')>" 

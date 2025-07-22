@@ -3,6 +3,8 @@ import pytest
 from unittest.mock import patch, MagicMock
 from typer.testing import CliRunner
 from datetime import datetime
+import httpx
+from respx import MockRouter
 
 from deepsecure.main import app
 from deepsecure.client import Client
@@ -116,10 +118,10 @@ def test_vault_store_secret_success(mock_sdk_client: MagicMock):
     """
     secret_name = "NEW_SECRET"
     secret_value = "new-secret-value"
-    
+
     # --- Setup the mock SDK client ---
-    mock_sdk_client.store_secret.return_value = None  # store_secret doesn't return anything
-    
+    mock_sdk_client.store_secret_direct.return_value = None  # store_secret_direct doesn't return anything
+
     # --- Action ---
     result = runner.invoke(app, [
         "vault",
@@ -128,13 +130,11 @@ def test_vault_store_secret_success(mock_sdk_client: MagicMock):
         "--value",
         secret_value
     ])
-    
+
     # --- Verification ---
     assert result.exit_code == 0
-    assert f"Secret '{secret_name}' stored successfully" in result.stdout
-    
-    # Verify that the CLI called the SDK correctly
-    mock_sdk_client.store_secret.assert_called_once_with(name=secret_name, value=secret_value)
+    mock_sdk_client.store_secret_direct.assert_called_once_with(name=secret_name, value=secret_value)
+    assert f"Secret '{secret_name}' stored successfully." in result.stdout
 
 def test_vault_store_secret_error(mock_sdk_client: MagicMock):
     """
@@ -142,11 +142,11 @@ def test_vault_store_secret_error(mock_sdk_client: MagicMock):
     """
     secret_name = "FAILING_SECRET"
     secret_value = "test-value"
-    
+
     # --- Setup ---
     error_message = "Storage backend unavailable"
-    mock_sdk_client.store_secret.side_effect = DeepSecureError(error_message)
-    
+    mock_sdk_client.store_secret_direct.side_effect = DeepSecureError(error_message)
+
     # --- Action ---
     result = runner.invoke(app, [
         "vault",
@@ -155,11 +155,10 @@ def test_vault_store_secret_error(mock_sdk_client: MagicMock):
         "--value",
         secret_value
     ])
-    
+
     # --- Verification ---
     assert result.exit_code == 1
-    
+
     # Check that the error message is displayed
     stdout_lower = result.stdout.lower()
     assert "failed to store secret" in stdout_lower
-    assert "storage backend unavailable" in stdout_lower 

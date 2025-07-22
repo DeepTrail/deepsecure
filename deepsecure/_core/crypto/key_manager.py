@@ -79,6 +79,30 @@ class KeyManager:
             "public_key": base64.b64encode(public_bytes).decode('ascii')
         }
     
+    def generate_identity_keypair_pem(self) -> tuple[str, str]:
+        """
+        Generate a new Ed25519 identity key pair for long-term agent identity,
+        returning keys in PEM format.
+
+        Returns:
+            A tuple containing the private key and public key, both as PEM-encoded strings.
+        """
+        private_key = ed25519.Ed25519PrivateKey.generate()
+        public_key = private_key.public_key()
+        
+        private_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode('utf-8')
+        
+        public_pem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode('utf-8')
+        
+        return public_pem, private_pem
+    
     def sign_ephemeral_key(self, ephemeral_public_key: str, identity_private_key: str) -> str:
         """
         Sign the raw bytes of an ephemeral public key using an identity private key.
@@ -187,6 +211,38 @@ class KeyManager:
         except Exception as e:
             # Re-raise as a more specific error if desired, or just ValueError
             raise ValueError(f"Failed to decode or parse public key: {e}") from e
+    
+    def derive_public_key(self, private_key_b64: str) -> str:
+        """
+        Derive the public key from a private key.
+        
+        Args:
+            private_key_b64: Base64-encoded private key.
+            
+        Returns:
+            Base64-encoded public key.
+        """
+        try:
+            private_key_bytes = base64.b64decode(private_key_b64)
+            if len(private_key_bytes) != 32:
+                raise ValueError("Private key bytes must be 32 bytes long for Ed25519.")
+            
+            # Load the private key
+            private_key_obj = ed25519.Ed25519PrivateKey.from_private_bytes(private_key_bytes)
+            
+            # Derive the public key
+            public_key_obj = private_key_obj.public_key()
+            
+            # Serialize to raw bytes
+            public_key_bytes = public_key_obj.public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw
+            )
+            
+            # Return base64-encoded public key
+            return base64.b64encode(public_key_bytes).decode('ascii')
+        except Exception as e:
+            raise ValueError(f"Failed to derive public key from private key: {e}") from e
 
 # Singleton instance for easy access across the application.
 key_manager = KeyManager() 

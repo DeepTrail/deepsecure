@@ -8,3 +8,7 @@ pyjwt[crypto]>=2.6.0
 pydantic>=2.0.0
 toml>=0.10.0
 rich>=13.0.0 
+python-jose[cryptography]
+pymacaroons
+
+[options.extras_require] 

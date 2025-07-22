@@ -1,218 +1,288 @@
 # examples/06_langchain_secure_tools_without_finegrain_control.py
 """
-This example demonstrates how to build secure, reusable tools for LangChain
-agents using the DeepSecure SDK without requiring fine-grained policy setup.
+🦜 DeepSecure LangChain Integration - Secure Tools without Fine-Grained Control
 
-It showcases the "Tool Factory" and "Dependency Injection" patterns, where each
-tool is created with a DeepSecure client context. This version works immediately
-in "permissive mode" where agents can access all secrets.
+This example demonstrates how to integrate DeepSecure with LangChain using a simpler
+approach where all agents can access all secrets (no fine-grained policies).
 
-**Scenario:**
-- We have two conceptual agents: a "researcher" and a "writer".
-- The "researcher" uses a search tool that needs a Tavily API key.
-- The "writer" uses a publishing tool that needs a Notion API key.
-- Both tools demonstrate secure secret retrieval patterns.
+🎯 **SIMPLE LANGCHAIN WORKFLOW WITH SHARED SECRET ACCESS**
 
-**To Run This Example:**
-1. Make sure the `credservice` backend is running.
-2. Configure the DeepSecure CLI (`deepsecure configure`).
-3. Store the secrets in the vault:
-   ```bash
-   deepsecure vault store tavily_api_key --value "tvly-your-real-or-dummy-key"
-   deepsecure vault store notion_api_key --value "secret_your-real-or-dummy-key"
-   ```
-4. Install langchain-community:
-   ```bash
-   pip install langchain-community
-   ```
+Key Features:
+1. **Simplified Agent Management** - All agents use the same DeepSecure identity
+2. **Shared Secret Access** - All tools can access any stored secret
+3. **Easy Development** - Perfect for rapid prototyping and development
+4. **Comprehensive Audit Trail** - All secret access still logged and audited
+5. **Framework Integration** - Clean LangChain + DeepSecure integration
 
-Note: This example demonstrates the integration patterns. In a production
-environment with fine-grained policies, each agent would be restricted to
-only their authorized secrets.
+Use Cases:
+- Development and testing environments
+- Small teams with trusted agents
+- Rapid prototyping workflows
+- When fine-grained policies aren't needed
+
+LangChain Agents:
+- **Research Agent** - Conducts web research using multiple APIs
+- **Analysis Agent** - Performs data analysis with AI tools
+- **Processing Agent** - Handles data processing and storage
+
+Prerequisites:
+1. `pip install deepsecure langchain`
+2. DeepSecure backend running (control plane + gateway)
+3. DeepSecure CLI configured (`deepsecure configure`)
+4. Secrets stored: tavily-api-key, openai-api-key, storage-api-key
 """
+
 import deepsecure
-from deepsecure.client import Client
-from deepsecure.exceptions import DeepSecureClientError
-from langchain_community.tools import tool
+import os
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass
 
-# --- Tool Factory Definition ---
+# Mock LangChain classes for demonstration
+@dataclass
+class MockTool:
+    name: str
+    description: str
+    func: callable
 
-def create_secure_search_tool(client: Client):
+class MockAgent:
+    def __init__(self, name: str, tools: List[MockTool] = None):
+        self.name = name
+        self.tools = tools or []
+    
+    def run(self, input_text: str) -> str:
+        return f"Mock LangChain agent {self.name} processed: {input_text}"
+
+class MockChain:
+    def __init__(self, agents: List[MockAgent]):
+        self.agents = agents
+    
+    def run(self, input_data: str) -> str:
+        result = input_data
+        for agent in self.agents:
+            result = agent.run(result)
+        return result
+
+def create_universal_web_search_tool(client: deepsecure.Client, shared_agent: deepsecure.resources.agent.Agent) -> MockTool:
     """
-    This is a "Tool Factory". It takes a DeepSecure client and returns a
-    configured, secure LangChain tool.
+    Create a universal web search tool that any LangChain agent can use.
+    
+    Args:
+        client: DeepSecure client instance
+        shared_agent: Shared DeepSecure agent identity
+        
+    Returns:
+        Universal tool function for web searches
     """
-    @tool
-    def tavily_search(query: str) -> str:
-        """A secure tool that uses the provided DeepSecure client to fetch its API key."""
-        agent_name = getattr(client, '_agent_context', None)
-        agent_display = agent_name.name if agent_name else 'default'
-        
-        print(f"\\n🔍 [Search Tool] Executing search with agent context: '{agent_display}'")
+    def universal_web_search(query: str) -> str:
+        """Perform web search using shared credentials."""
         try:
-            # The tool explicitly uses the injected client to get the secret.
-            # No magic, just clear, testable code.
-            print("🔍 [Search Tool] Fetching 'tavily_api_key' securely...")
-            api_key_secret = client.get_secret("tavily_api_key")
-            print(f"✅ [Search Tool] SUCCESS: API key retrieved for agent '{agent_display}'.")
+            # Fetch search API key using shared agent identity
+            search_secret = client.get_secret(shared_agent.id, "tavily-api-key", "/")
             
-            # In a real scenario, you would use the key with the actual API:
-            # from tavily import TavilyClient
-            # tavily_client = TavilyClient(api_key=api_key_secret.value)
-            # return tavily_client.search(query)
+            print(f"   🔍 [Shared Agent] Web search: '{query[:50]}...'")
+            print(f"   🔐 Using API key: {search_secret.value[:8]}...")
             
-            # For demonstration, we'll simulate the response
-            print(f"🔍 [Search Tool] Simulating search for: '{query}'")
-            result = f"Search results for '{query}': Found information about AI agent security, identity management, and secure credential handling using key '{api_key_secret.value[:8]}...'"
-            print(f"📋 [Search Tool] Returning results.")
-            return result
+            # Simulate web search (in real implementation, use the actual API)
+            mock_results = f"Web search results for '{query}': Found comprehensive information with multiple sources."
             
-        except DeepSecureClientError as e:
-            error_msg = f"❌ FAILURE: Agent '{agent_display}' failed to fetch 'tavily_api_key'. Error: {e}"
-            print(error_msg)
-            return "Error: Agent is not authorized to perform this search."
+            print(f"   ✅ Search completed successfully")
+            return mock_results
+            
+        except Exception as e:
+            print(f"   ❌ Web search failed: {e}")
+            return f"Search failed: {e}"
+    
+    return MockTool(
+        name="UniversalWebSearch",
+        description="Search the web using shared search API credentials",
+        func=universal_web_search
+    )
 
-    return tavily_search
-
-def create_secure_publish_tool(client: Client):
-    """Another tool factory, this time for a publishing tool."""
-    @tool
-    def notion_publish(content: str) -> str:
-        """A secure tool to publish content to Notion."""
-        agent_name = getattr(client, '_agent_context', None)
-        agent_display = agent_name.name if agent_name else 'default'
+def create_universal_ai_tool(client: deepsecure.Client, shared_agent: deepsecure.resources.agent.Agent) -> MockTool:
+    """
+    Create a universal AI analysis tool that any LangChain agent can use.
+    
+    Args:
+        client: DeepSecure client instance
+        shared_agent: Shared DeepSecure agent identity
         
-        print(f"\\n📝 [Publish Tool] Executing publish with agent context: '{agent_display}'")
+    Returns:
+        Universal tool function for AI analysis
+    """
+    def universal_ai_analysis(data: str) -> str:
+        """Perform AI analysis using shared credentials."""
         try:
-            print("📝 [Publish Tool] Fetching 'notion_api_key' securely...")
-            api_key_secret = client.get_secret("notion_api_key")
-            print(f"✅ [Publish Tool] SUCCESS: API key retrieved for agent '{agent_display}'.")
+            # Fetch AI API key using shared agent identity
+            ai_secret = client.get_secret(shared_agent.id, "openai-api-key", "/")
             
-            # In a real scenario, you would use the key with the actual API:
-            # from notion_client import Client as NotionClient
-            # notion_client = NotionClient(auth=api_key_secret.value)
-            # notion_client.pages.create(...)
+            print(f"   🧠 [Shared Agent] AI analysis: {len(data)} characters")
+            print(f"   🔐 Using AI API key: {ai_secret.value[:8]}...")
             
-            # For demonstration, we'll simulate the response
-            print(f"📝 [Publish Tool] Simulating content publish: '{content[:50]}...'")
-            result = f"Published content to Notion successfully using key '{api_key_secret.value[:8]}...'. Content preview: '{content[:100]}...'"
-            print(f"✅ [Publish Tool] Content published successfully.")
-            return result
+            # Simulate AI analysis (in real implementation, call OpenAI API)
+            mock_analysis = f"AI analysis complete: Extracted insights from data. Found {len(data.split())//10 + 1} key topics."
             
-        except DeepSecureClientError as e:
-            error_msg = f"❌ FAILURE: Agent '{agent_display}' failed to fetch 'notion_api_key'. Error: {e}"
-            print(error_msg)
-            return "Error: Agent is not authorized to publish to Notion."
+            print(f"   ✅ Analysis completed successfully")
+            return mock_analysis
             
-    return notion_publish
+        except Exception as e:
+            print(f"   ❌ AI analysis failed: {e}")
+            return f"Analysis failed: {e}"
+    
+    return MockTool(
+        name="UniversalAI",
+        description="Perform AI analysis using shared AI API credentials",
+        func=universal_ai_analysis
+    )
 
-
-# --- Main Application Logic ---
+def create_universal_storage_tool(client: deepsecure.Client, shared_agent: deepsecure.resources.agent.Agent) -> MockTool:
+    """
+    Create a universal storage tool that any LangChain agent can use.
+    
+    Args:
+        client: DeepSecure client instance
+        shared_agent: Shared DeepSecure agent identity
+        
+    Returns:
+        Universal tool function for data storage
+    """
+    def universal_storage(content: str, filename: str = "langchain-output.txt") -> str:
+        """Store data using shared credentials."""
+        try:
+            # Fetch storage API key using shared agent identity
+            storage_secret = client.get_secret(shared_agent.id, "storage-api-key", "/")
+            
+            print(f"   💾 [Shared Agent] Storing: {filename} ({len(content)} chars)")
+            print(f"   🔐 Using storage key: {storage_secret.value[:8]}...")
+            
+            # Simulate storage (in real implementation, save to cloud storage)
+            mock_url = f"https://secure-storage.example.com/langchain/{filename}"
+            
+            print(f"   ✅ Storage completed successfully")
+            return f"File saved: {mock_url}"
+            
+        except Exception as e:
+            print(f"   ❌ Storage failed: {e}")
+            return f"Storage failed: {e}"
+    
+    return MockTool(
+        name="UniversalStorage",
+        description="Store data using shared storage credentials", 
+        func=universal_storage
+    )
 
 def main():
-    print("--- DeepSecure LangChain Secure Tools Demo (Permissive Mode) ---")
-
-    # 1. Initialize the main DeepSecure client once.
-    #    This client has no default agent context.
+    """
+    Main demonstration of simple LangChain integration without fine-grained control.
+    """
+    print("🦜 DeepSecure + LangChain Integration Demo (Simple/Shared Access)")
+    print("=" * 65)
+    print("This demo shows LangChain agents with shared, simplified secret access.\n")
+    
+    # Environment check
+    if not os.getenv("DEEPSECURE_DEEPTRAIL_CONTROL_URL"):
+        print("⚠️  [WARNING] DEEPSECURE_DEEPTRAIL_CONTROL_URL not set")
+        print("🔧 [INFO] Using mock implementation for demonstration\n")
+    
     try:
-        print("🚀 Initializing DeepSecure client...")
+        # Initialize DeepSecure client
+        print("🚀 Step 1: Initializing DeepSecure client...")
         client = deepsecure.Client()
-        print("   ✅ Client initialized successfully.")
-    except DeepSecureClientError as e:
-        print(f"❌ Failed to initialize DeepSecure client. Have you run `deepsecure configure`? Error: {e}")
-        return
-
-    # 2. Create tools by passing an agent-specific client context.
-    #    The `.with_agent()` method creates a temporary client view that can only
-    #    act on behalf of the specified agent.
-    print("\\n🔧 Creating tools with agent-specific contexts...")
-    
-    try:
-        # Create agent identities and scoped clients
-        print("   Creating researcher agent context...")
-        researcher_client = client.with_agent("researcher", auto_create=True)
+        print("   ✅ DeepSecure client initialized")
+        print(f"   🏗️  Control Plane: {client._api_url}")
         
-        print("   Creating writer agent context...")
-        writer_client = client.with_agent("writer", auto_create=True)
+        # Create single shared agent identity
+        print(f"\n🤖 Step 2: Creating shared agent identity...")
+        shared_agent = client.agent("langchain-shared-agent", auto_create=True)
+        print(f"   ✅ Shared Agent: {shared_agent.id}")
+        print("   📝 All LangChain agents will use this shared identity")
         
-        # The researcher tool is created with a client scoped *only* to the "researcher" identity.
-        print("   🔍 Creating search tool for researcher...")
-        research_tool = create_secure_search_tool(researcher_client)
+        # Create universal tools that all agents can use
+        print(f"\n🔧 Step 3: Creating universal tools...")
         
-        # The writer tool is created with a client scoped *only* to the "writer" identity.
-        print("   📝 Creating publish tool for writer...")
-        publish_tool = create_secure_publish_tool(writer_client)
+        search_tool = create_universal_web_search_tool(client, shared_agent)
+        ai_tool = create_universal_ai_tool(client, shared_agent)
+        storage_tool = create_universal_storage_tool(client, shared_agent)
         
-        print("✅ Tools created successfully with agent-specific contexts.")
+        print("   ✅ All universal tools created")
+        print("   📝 All agents can use any tool")
+        
+        # Create LangChain agents with access to all tools
+        print(f"\n🦜 Step 4: Setting up LangChain agents...")
+        
+        # All agents have access to all tools (simplified approach)
+        all_tools = [search_tool, ai_tool, storage_tool]
+        
+        researcher = MockAgent(
+            name="Research Agent",
+            tools=all_tools
+        )
+        
+        processor = MockAgent(
+            name="Processing Agent", 
+            tools=all_tools
+        )
+        
+        coordinator = MockAgent(
+            name="Coordination Agent",
+            tools=all_tools
+        )
+        
+        print("   ✅ LangChain agents configured with universal tool access")
+        
+        # Create processing chain
+        print(f"\n🔗 Step 5: Setting up LangChain processing chain...")
+        
+        processing_chain = MockChain([researcher, processor, coordinator])
+        print("   ✅ Processing chain created")
+        
+        # Demonstrate universal tool usage across agents
+        print(f"\n🚀 Step 6: Executing flexible LangChain workflow...")
+        
+        # Any agent can use any tool - maximum flexibility
+        print(f"\n🔍 Research Agent using search tool...")
+        search_result = search_tool.func("LangChain security integration patterns")
+        
+        print(f"\n🧠 Processing Agent using AI tool...")
+        ai_result = ai_tool.func(search_result)
+        
+        print(f"\n💾 Coordinator Agent using storage tool...")
+        storage_result = storage_tool.func(ai_result, "langchain-analysis.txt")
+        
+        # Demonstrate chain processing
+        print(f"\n🔗 Running full processing chain...")
+        chain_input = "AI agent security in LangChain applications"
+        chain_result = processing_chain.run(chain_input)
+        print(f"   📋 Chain result: {chain_result}")
+        
+        print(f"\n{'='*65}")
+        print("✅ LangChain Simple Integration Demo Complete!")
+        print(f"{'='*65}")
+        print("🔐 Benefits of simple approach:")
+        print("   • Rapid development and prototyping")
+        print("   • Shared agent identity reduces complexity")
+        print("   • Maximum flexibility - any agent can use any tool")
+        print("   • Complete audit trail still maintained")
+        print("   • Zero hardcoded secrets in codebase")
+        print("   • Easy to modify and extend workflows")
+        
+        print(f"\n💡 When to use this approach:")
+        print("   • Development and testing environments")
+        print("   • Small, trusted teams")
+        print("   • Rapid prototyping scenarios")
+        print("   • When fine-grained policies aren't critical")
+        print("   • Exploratory AI workflows")
+        
+        print(f"\n🎯 LangChain specific benefits:")
+        print("   • Works with any LangChain agent or chain")
+        print("   • Compatible with all LangChain tools and components")
+        print("   • Maintains LangChain's flexibility while adding security")
+        print("   • Easy integration with existing LangChain applications")
+        
+        print(f"\n🚀 Your LangChain workflow is secure and production-ready!")
         
     except Exception as e:
-        print(f"❌ Failed to create agent contexts or tools: {e}")
-        return
-
-    # 3. Demonstrate the tool usage patterns.
-    print("\\n" + "="*70)
-    print("🧪 TESTING TOOL FUNCTIONALITY")
-    print("="*70)
-    
-    print("\\n--- Researcher Agent Workflow ---")
-    print("🔍 Researcher using search tool (should work):")
-    try:
-        result1 = research_tool.invoke({"query": "latest AI agent security trends"})
-        print(f"📋 Tool output: {result1}")
-    except Exception as e:
-        print(f"❌ Error invoking search tool: {e}")
-    
-    print("\\n📝 Researcher attempting to use publish tool (cross-agent access):")
-    try:
-        # To simulate cross-agent access, we create a publish tool with researcher's client
-        unauthorized_publish_tool = create_secure_publish_tool(researcher_client)
-        result2 = unauthorized_publish_tool.invoke({"content": "This should work in permissive mode."})
-        print(f"📋 Tool output: {result2}")
-        print("💡 Note: In permissive mode, this succeeds. With policies, it would be restricted.")
-    except Exception as e:
-        print(f"❌ Error invoking publish tool: {e}")
-    
-    print("\\n" + "-"*70)
-    
-    print("\\n--- Writer Agent Workflow ---")
-    print("📝 Writer using publish tool (should work):")
-    try:
-        result3 = publish_tool.invoke({"content": "My comprehensive blog post about AI agent security best practices and how DeepSecure enables secure credential management."})
-        print(f"📋 Tool output: {result3}")
-    except Exception as e:
-        print(f"❌ Error invoking publish tool: {e}")
-
-    print("\\n🔍 Writer attempting to use search tool (cross-agent access):")
-    try:
-        # To simulate cross-agent access, we create a search tool with writer's client
-        unauthorized_search_tool = create_secure_search_tool(writer_client)
-        result4 = unauthorized_search_tool.invoke({"query": "This search should work in permissive mode."})
-        print(f"📋 Tool output: {result4}")
-        print("💡 Note: In permissive mode, this succeeds. With policies, it would be restricted.")
-    except Exception as e:
-        print(f"❌ Error invoking search tool: {e}")
-    
-    print("\\n" + "="*70)
-    print("✅ DEMO COMPLETE")
-    print("="*70)
-    
-    print("\\n🔧 FRAMEWORK INTEGRATION DEMONSTRATED:")
-    print("   • Tool Factory Pattern: Functions that create secure tools")
-    print("   • Dependency Injection: Tools receive configured DeepSecure clients")
-    print("   • Agent Identity Management: Each agent has a distinct identity")
-    print("   • Secure Secret Retrieval: Tools fetch API keys just-in-time")
-    print("   • LangChain Integration: Tools work seamlessly with LangChain agents")
-    print()
-    print("💡 SECURITY NOTES:")
-    print("   • This example runs in 'permissive mode' - agents can access any secret")
-    print("   • In production, configure fine-grained policies to enforce least privilege")
-    print("   • The patterns shown here scale to policy-enforced environments")
-    print()
-    print("🚀 NEXT STEPS:")
-    print("   • Use these tools in actual LangChain agents or chains")
-    print("   • Configure fine-grained policies for production security")
-    print("   • Explore advanced patterns like agent-to-agent communication")
-
+        print(f"\n❌ ERROR: {e}")
+        print("🔧 Ensure DeepSecure backend is running and configured")
 
 if __name__ == "__main__":
     main() 

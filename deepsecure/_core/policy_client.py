@@ -1,73 +1,141 @@
 '''Client for interacting with the Policy API.'''
 
-from typing import Dict, Any, Optional
-from pathlib import Path
+from typing import List, Dict, Any
 
-from . import base_client
-from .. import auth, exceptions
+from .base_client import BaseClient
+from .._core.schemas import PolicyResponse
 
-class PolicyClient(base_client.BaseClient):
-    """Client for interacting with the Policy API."""
-    
-    def __init__(self):
-        """Initialize the Policy client."""
-        super().__init__("policy")
-    
-    def generate_from_template(self, template: str, output_path: Optional[Path] = None) -> Dict[str, Any]:
-        """Generate a policy file from a template.
-        
+class PolicyClient(BaseClient):
+    """
+    Client for interacting with the policy management endpoints.
+    """
+
+    def create(
+        self,
+        name: str,
+        agent_id: str,
+        actions: List[str],
+        resources: List[str],
+        effect: str = "allow",
+    ) -> PolicyResponse:
+        """
+        Creates a new policy.
+
         Args:
-            template: Template name to use
-            output_path: Path to write the policy file to
+            name: The name of the policy.
+            agent_id: The ID of the agent this policy applies to.
+            actions: A list of actions allowed by the policy (e.g., 'secret:read').
+            resources: A list of resource ARNs this policy applies to.
+            effect: The effect of the policy ('allow' or 'deny').
+
+        Returns:
+            The created policy object.
+        """
+        policy_data = {
+            "name": name,
+            "agent_id": agent_id,
+            "actions": actions,
+            "resources": resources,
+            "effect": effect,
+        }
+        response = self._request("POST", "/api/v1/policies/", json=policy_data)
+        return PolicyResponse(**response.json())
+
+    def list(self) -> List[PolicyResponse]:
+        """
+        Lists all existing policies.
+
+        Returns:
+            A list of policy objects.
+        """
+        response = self._request("GET", "/api/v1/policies/")
+        return [PolicyResponse(**p) for p in response.json()]
+
+    def get(self, policy_id: str) -> PolicyResponse:
+        """
+        Retrieves a single policy by its ID.
+
+        Args:
+            policy_id: The ID of the policy to retrieve.
+
+        Returns:
+            The requested policy object.
+        """
+        response = self._request("GET", f"/api/v1/policies/{policy_id}")
+        return PolicyResponse(**response.json())
+
+    def delete(self, policy_id: str) -> Dict[str, Any]:
+        """
+        Deletes a policy by its ID.
+
+        Args:
+            policy_id: The ID of the policy to delete.
         
         Returns:
-            Dictionary containing the generated policy
+            A confirmation message.
         """
-        # Placeholder implementation
-        print(f"[DEBUG] Would generate policy from template={template}, output_path={output_path}")
-        
-        # Return a sample policy
-        policy = {
-            "version": 1,
-            "name": f"generated-from-{template}",
-            "permissions": {
-                "file_access": {
-                    "allow": ["read"],
-                    "paths": ["./configs/**"]
-                },
-                "network": {
-                    "allow": ["connect"],
-                    "hosts": ["api.example.com"]
-                }
-            }
-        }
-        
-        # In a real implementation, we'd write to output_path if provided
-        if output_path:
-            print(f"[DEBUG] Would write policy to {output_path}")
-        
-        return policy
-    
-    def apply_policy(self, identity: str, policy_path: Path) -> Dict[str, Any]:
-        """Apply a policy to an identity.
-        
-        Args:
-            identity: Identity to apply the policy to
-            policy_path: Path to the policy file
-            
-        Returns:
-            Dictionary with the result of policy application
-        """
-        # Placeholder implementation
-        print(f"[DEBUG] Would apply policy from {policy_path} to identity={identity}")
-        
-        # In a real implementation, we'd read the policy file and apply it
-        return {
-            "identity": identity,
-            "policy_id": "policy-abc123",
-            "status": "active",
-            "applied_at": "2023-01-01T00:00:00Z"
-        }
+        response = self._request("DELETE", f"/api/v1/policies/{policy_id}")
+        return response.json()
 
-# Singleton instance
-client = PolicyClient() 
+    def create_attestation_policy(self, policy_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Creates a new attestation policy.
+
+        Args:
+            policy_data: The dictionary containing the policy details.
+
+        Returns:
+            The created attestation policy object.
+        """
+        response = self._request("POST", "/api/v1/policies/attestation/", json=policy_data)
+        return response.json()
+
+    def list_attestation_policies(self) -> List[Dict[str, Any]]:
+        """
+        Lists all existing attestation policies.
+
+        Returns:
+            A list of attestation policy objects.
+        """
+        response = self._request("GET", "/api/v1/policies/attestation/")
+        return response.json()
+
+    def get_attestation_policy(self, policy_id: str) -> Dict[str, Any]:
+        """
+        Retrieves a single attestation policy by its ID.
+
+        Args:
+            policy_id: The ID of the attestation policy to retrieve.
+
+        Returns:
+            The requested attestation policy object.
+        """
+        response = self._request("GET", f"/api/v1/policies/attestation/{policy_id}")
+        return response.json()
+
+    def update_attestation_policy(self, policy_id: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Updates an attestation policy.
+
+        Args:
+            policy_id: The ID of the attestation policy to update.
+            update_data: The dictionary containing the fields to update.
+
+        Returns:
+            The updated attestation policy object.
+        """
+        response = self._request("PUT", f"/api/v1/policies/attestation/{policy_id}", json=update_data)
+        return response.json()
+
+    def delete_attestation_policy(self, policy_id: str) -> Dict[str, Any]:
+        """
+        Deletes an attestation policy by its ID.
+
+        Args:
+            policy_id: The ID of the attestation policy to delete.
+        
+        Returns:
+            A confirmation message.
+        """
+        response = self._request("DELETE", f"/api/v1/policies/attestation/{policy_id}")
+        return response.json() 

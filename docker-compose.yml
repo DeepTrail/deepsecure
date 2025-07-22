@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: deeptrail_control_db
+    environment:
+      POSTGRES_USER: deepsecure_user
+      POSTGRES_PASSWORD: deepsecure_password
+      POSTGRES_DB: deeptrail_controldb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432" # Expose on 5434 to avoid conflict
+    networks:
+      - deepsecure_network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U deepsecure_user -d deeptrail_controldb" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis service for gateway split-key storage
+  redis:
+    image: redis:7-alpine
+    container_name: deeptrail_gateway_redis
+    ports:
+      - "6380:6379" # Expose on 6380 to avoid conflict
+    volumes:
+      - redis_data:/data
+    networks:
+      - deepsecure_network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    command: redis-server --appendonly yes # Enable persistence
+
+  deeptrail-control:
+    build:
+      context: ./deeptrail-control
+    container_name: deeptrail_control_app
+    ports:
+      - "8000:8001"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://deepsecure_user:deepsecure_password@db/deeptrail_controldb
+      - SECRET_KEY=your-secret-key-for-jwt
+      - BACKEND_API_TOKEN=DEFAULT_QUICKSTART_TOKEN
+      - GATEWAY_URL=http://deeptrail-gateway:8001
+      - GATEWAY_INTERNAL_API_TOKEN=gateway-internal-secret-token
+
+      # This tells the service where to find the policy file we mounted below.
+      - POLICY_PATH=/app/policies.yml
+      
+      # Other app settings
+      - ALGORITHM=HS256
+      - POSTGRES_DRIVER=psycopg2
+      # Pass the current DeepSecure version to the container
+      - DEEPSECURE_VERSION=0.1.10
+      
+    volumes:
+      # Mount the policies file into the container to make it accessible to the service.
+      # The ':ro' makes the file read-only inside the container for better security.
+      - ./deeptrail-control/policies.yml:/app/policies.yml:ro
+      
+    networks:
+      - deepsecure_network
+
+  deeptrail-gateway:
+    build:
+      context: ./deeptrail-gateway
+    container_name: deeptrail_gateway_app
+    ports:
+      - "8002:8001"
+    depends_on:
+      - deeptrail-control
+      - redis
+    environment:
+      - CONTROL_PLANE_URL=http://deeptrail-control:8001
+      - SECRET_KEY=your-secret-key-for-jwt
+      - REDIS_URL=redis://redis:6379
+      - GATEWAY_ENCRYPTION_KEY=gateway-master-encryption-key-32-chars
+      - GATEWAY_INTERNAL_API_TOKEN=gateway-internal-secret-token
+      # Pass the current DeepSecure version to the container
+      - DEEPSECURE_VERSION=0.1.10
+    networks:
+      - deepsecure_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  deepsecure_network:
+    driver: bridge

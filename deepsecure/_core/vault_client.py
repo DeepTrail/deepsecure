@@ -21,7 +21,6 @@ from . import base_client
 from .crypto.key_manager import key_manager
 from .audit_logger import audit_logger
 from .. import exceptions
-from .identity_manager import identity_manager
 from . import schemas as client_schemas # Import client-side Pydantic schemas for request payload
 
 # print("\n<<<< DEBUG: vault_client.py IS BEING LOADED AND EXECUTED (top level) >>>>\n", file=sys.stderr)
@@ -45,14 +44,14 @@ class VaultClient(base_client.BaseClient):
     revocation and verification.
     """
     
-    def __init__(self):
+    def __init__(self, client: base_client.BaseClient):
         """Initialize the Vault client.
 
         Sets up the service name for the base client, initializes dependencies
         like the key manager and audit logger, ensures local storage directories
         exist, and loads the local revocation list.
         """
-        super().__init__()
+        self._client = client
         self.key_manager = key_manager
         self.audit_logger = audit_logger
         self.revocation_list_file = REVOCATION_LIST_FILE
@@ -305,17 +304,17 @@ class VaultClient(base_client.BaseClient):
             self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=f"Invalid TTL: {e}")
             raise
 
-        agent_identity = identity_manager.load_identity(agent_id)
+        agent_identity = self._client._identity_manager.get_identity(agent_id)
         if not agent_identity:
             err_msg = f"Local identity for agent_id '{agent_id}' not found by IdentityManager."
             logger.error(f"[VaultClient Core] {err_msg}")
             self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=err_msg)
             raise exceptions.VaultError(err_msg)
 
-        loaded_public_key_b64 = agent_identity.get("public_key")
+        loaded_public_key_b64 = agent_identity.public_key_b64
         logger.info(f"[VaultClient Core] Public key from loaded local identity for {agent_id}: {loaded_public_key_b64}")
 
-        agent_private_key_b64 = agent_identity.get("private_key")
+        agent_private_key_b64 = agent_identity.private_key_b64
         logger.info(f"[VaultClient Core] Private key loaded from IdentityManager for {agent_id} (first 10 chars): {str(agent_private_key_b64)[:10]}...")
         if not agent_private_key_b64:
             err_msg = f"Private key for agent_id '{agent_id}' not found via IdentityManager (keyring). Cannot sign request."
@@ -384,13 +383,15 @@ class VaultClient(base_client.BaseClient):
 
         logger.info(f"[VaultClient Core] Attempting backend credential issuance for agent {agent_id}")
         try:
-            # Server expects string fields, its Pydantic model decodes to bytes for sig/eph_key
-            server_response_data = self._request(
+            # Phase 1: Use standardized authenticated request method
+            # This ensures proper authentication and consistent routing through BaseClient
+            server_response = self._client._authenticated_request(
                 "POST",
-                "/api/v1/vault/credentials", 
-                data=payload_dict, # Use the Pydantic validated dict
-                is_backend_request=True
+                "/api/v1/vault/credentials",
+                agent_id=agent_id,
+                json=payload_dict
             )
+            server_response_data = server_response.json()
             # Server returns data matching server-side CredentialIssueResponse (which should be compatible with client_schemas.CredentialBase)
             # Validate against client_schemas.CredentialBase
             server_response_base = client_schemas.CredentialBase.model_validate(server_response_data)
@@ -454,11 +455,11 @@ class VaultClient(base_client.BaseClient):
 
         # --- Backend Revocation Attempt --- #
         backend_success = False
-        if not local_only and self.backend_url and self.backend_api_token:
+        if not local_only and self._client.backend_url and self._client.backend_api_token:
             logger.info(f"Attempting backend revocation for id={credential_id}")
             try:
                 # Backend endpoint is POST /api/v1/vault/credentials/{credential_id}/revoke
-                response_data = self._request(
+                response_data = self._client._request(
                     "POST",
                     f"/api/v1/vault/credentials/{credential_id}/revoke",
                     is_backend_request=True
@@ -579,14 +580,14 @@ class VaultClient(base_client.BaseClient):
 
         # --- Backend Notification Attempt --- #
         backend_notified = False
-        if not local_only and self.backend_url and self.backend_api_token:
+        if not local_only and self._client.backend_url and self._client.backend_api_token:
             logger.info(f"Attempting backend notification for key rotation: agent={agent_id}")
             try:
                 payload = {
                     # Backend expects key bytes encoded in base64 in the request
                     "new_public_key": new_public_key_b64
                 }
-                response_data = self._request(
+                response_data = self._client._request(
                     "POST",
                     f"/api/v1/vault/agents/{agent_id}/rotate-identity",
                     data=payload,
@@ -673,8 +674,10 @@ class VaultClient(base_client.BaseClient):
 
         # 3. Get Agent Identity Public Key
         try:
-            agent_identity = identity_manager.load_identity(agent_id)
-            identity_public_key = agent_identity["public_key"]
+            agent_identity = self._client._identity_manager.get_identity(agent_id)
+            identity_public_key = agent_identity.public_key_b64 if agent_identity else None
+            if not identity_public_key:
+                raise exceptions.VaultError(f"No public key found for agent {agent_id}")
         except exceptions.VaultError as e:
             print(f"[Verification Failed] Could not load identity for agent {agent_id}: {e}", file=sys.stderr)
             return False # Cannot verify signature without public key
@@ -707,6 +710,7 @@ class VaultClient(base_client.BaseClient):
         # All checks passed
         return True
 
-
-# Singleton instance of the client for easy import and use.
-client = VaultClient() 
+# The VaultClient is no longer a self-contained singleton.
+# It will be instantiated and managed by the high-level DeepSecure client,
+# which will provide it with a fully configured BaseClient.
+# client = VaultClient(base_client.BaseClient()) 

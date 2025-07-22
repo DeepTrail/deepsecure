@@ -6,7 +6,7 @@ import uuid
 import hashlib
 import base64
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 import sys
 
 import keyring # Import the keyring library
@@ -15,47 +15,217 @@ import keyring # Import the keyring library
 from keyring.errors import NoKeyringError, PasswordDeleteError, PasswordSetError
 
 # Import the key_manager instance directly
-from .crypto.key_manager import key_manager 
-from .. import utils 
+from .crypto.key_manager import key_manager
+from .. import utils
 from ..exceptions import DeepSecureClientError, IdentityManagerError
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-# Helper to generate the dynamic service name for an agent's private key in the keyring
-def _get_keyring_service_name_for_agent(agent_id: str) -> str:
-    if not agent_id.startswith("agent-"):
-        # Fallback or raise error for unexpected agent_id format
-        # For now, use a generic one if format is off, but ideally, format should always be correct.
-        # Or, this could be a point of failure if agent_id is malformed.
-        # Let's make it strict for now.
-        raise ValueError(f"Agent ID '{agent_id}' does not follow the expected 'agent-<uuid>' format.")
-    parts = agent_id.split('-')
-    if len(parts) < 2:
-        raise ValueError(f"Agent ID '{agent_id}' does not contain a UUID part after 'agent-'.")
-    prefix = parts[1] # Get the first part of the UUID
-    return f"deepsecure_agent-{prefix}_private_key"
+# Import the new identity provider abstractions
+from .identity_provider import AgentIdentity, IdentityProvider, KeyringIdentityProvider, _get_keyring_service_name_for_agent
+
 
 class IdentityManager:
     """
-    Simplified Identity Manager for Backend-Only Architecture.
+    Manages agent identities, coordinating between multiple sources (providers)
+    and handling the secure storage of private keys in the system keyring.
     
-    This new architecture eliminates local JSON metadata storage and relies solely on:
-    1. Backend for all agent metadata (public keys, names, creation times, etc.)
-    2. Keychain for private keys only
-    
-    Benefits:
-    - Single source of truth (backend)
-    - No synchronization issues between local and backend state
-    - Simplified cleanup (just sync keychain with backend)
-    - No orphaned JSON files
+    This class orchestrates a chain of IdentityProviders to find an agent's
+    identity, while also remaining the central point for creating, storing,
+    and deleting the cryptographic keys that underpin those identities.
     """
     
-    def __init__(self, silent_mode: bool = False):
+    def __init__(self, api_client: 'BaseClient', providers: Optional[List[IdentityProvider]] = None, silent_mode: bool = False):
         self.silent_mode = silent_mode
         self.key_manager = key_manager
+        self.api_client = api_client
         
-        # Note: We no longer create or use local identity directories
-        # All metadata comes from the backend
+        # Initialize environment detector for intelligent provider selection
+        from .environment_detector import environment_detector
+        self.environment_detector = environment_detector
         
+        if providers is None:
+            # Use intelligent provider selection based on environment detection
+            self.providers = self._create_intelligent_provider_chain()
+        else:
+            self.providers = providers
+        
+        if not self.silent_mode:
+            provider_names = ", ".join(f"[bold cyan]{p.name}[/bold cyan]" for p in self.providers)
+            utils.console.print(f"[IdentityManager] Initialized with identity providers: {provider_names}", style="dim")
+            
+            # Log environment detection results
+            env_summary = self.environment_detector.get_environment_summary()
+            utils.console.print(
+                f"[IdentityManager] Environment: {env_summary['detected_environment']} "
+                f"(confidence: {env_summary['confidence']:.2f})", 
+                style="dim"
+            )
+            
+    def _create_intelligent_provider_chain(self) -> List[IdentityProvider]:
+        """
+        Create an intelligent provider chain based on environment detection.
+        Orders providers by likelihood of success in the current environment.
+        """
+        from .identity_provider import (
+            KubernetesIdentityProvider,
+            AwsIdentityProvider, 
+            AzureIdentityProvider,
+            DockerIdentityProvider,
+            KeyringIdentityProvider
+        )
+        
+        providers = []
+        
+        # Get environment detection results
+        recommended_method, env_info = self.environment_detector.get_recommended_bootstrap_method()
+        
+        if not self.silent_mode:
+            utils.console.print(
+                f"[IdentityManager] Recommended bootstrap method: {recommended_method or 'none (local)'}", 
+                style="dim"
+            )
+        
+        # Create all available providers
+        all_providers = {
+            "kubernetes": KubernetesIdentityProvider(client=self.api_client, silent_mode=self.silent_mode),
+            "aws": AwsIdentityProvider(client=self.api_client, silent_mode=self.silent_mode),
+            "azure": AzureIdentityProvider(client=self.api_client, silent_mode=self.silent_mode),
+            "docker": DockerIdentityProvider(client=self.api_client, silent_mode=self.silent_mode)
+        }
+        
+        # Add the recommended provider first (highest priority)
+        if recommended_method and recommended_method in all_providers:
+            providers.append(all_providers[recommended_method])
+            del all_providers[recommended_method]  # Remove to avoid duplicates
+        
+        # Add remaining providers in order of general likelihood
+        provider_order = ["kubernetes", "aws", "azure", "docker"]
+        for provider_name in provider_order:
+            if provider_name in all_providers:
+                providers.append(all_providers[provider_name])
+        
+        # Always add the keyring provider as fallback
+        providers.append(KeyringIdentityProvider(silent_mode=self.silent_mode))
+        
+        return providers
+    
+    def get_identity_with_auto_bootstrap(self, agent_id: str) -> Optional[AgentIdentity]:
+        """
+        Get agent identity with automatic bootstrap if supported by environment.
+        This is an enhanced version that tries bootstrap automatically in suitable environments.
+        
+        Args:
+            agent_id: Agent ID to get identity for
+            
+        Returns:
+            AgentIdentity if found or successfully bootstrapped
+        """
+        # First try the standard provider chain
+        identity = self.get_identity(agent_id)
+        if identity:
+            return identity
+        
+        # If no identity found, check if we can auto-bootstrap
+        recommended_method, env_info = self.environment_detector.get_recommended_bootstrap_method()
+        
+        if not recommended_method or not env_info.bootstrap_capable:
+            if not self.silent_mode:
+                utils.console.print(
+                    f"[IdentityManager] No identity found for {agent_id} and auto-bootstrap not available in this environment",
+                    style="yellow"
+                )
+            return None
+        
+        if not self.silent_mode:
+            utils.console.print(
+                f"[IdentityManager] No identity found for {agent_id}, attempting auto-bootstrap using {recommended_method}",
+                style="yellow"
+            )
+        
+        # Try auto-bootstrap using the recommended provider
+        for provider in self.providers:
+            if provider.name == recommended_method:
+                try:
+                    bootstrap_identity = provider.get_identity(agent_id)
+                    if bootstrap_identity:
+                        if not self.silent_mode:
+                            utils.console.print(
+                                f"[IdentityManager] Successfully auto-bootstrapped identity for {agent_id} using {recommended_method}",
+                                style="green"
+                            )
+                        return bootstrap_identity
+                except Exception as e:
+                    if not self.silent_mode:
+                        utils.console.print(
+                            f"[IdentityManager] Auto-bootstrap failed for {agent_id} using {recommended_method}: {e}",
+                            style="red"
+                        )
+                break
+        
+        return None
+    
+    def get_environment_info(self) -> Dict[str, Any]:
+        """Get detailed environment information for debugging and logging."""
+        return self.environment_detector.get_environment_summary()
+
+    def authenticate(self, agent_id: str) -> str:
+        """
+        Authenticates the agent and returns a JWT.
+        Delegates the entire challenge-response flow to the API client.
+        """
+        if not self.api_client:
+            raise IdentityManagerError("API client not configured. Cannot authenticate.")
+        
+        try:
+            # The api_client handles the full challenge-response flow
+            return self.api_client.get_access_token(agent_id)
+        except Exception as e:
+            # Re-raise exceptions from the client as IdentityManagerErrors
+            # for consistent error handling at the call site.
+            raise IdentityManagerError(f"Authentication failed for agent {agent_id}: {e}") from e
+
+    def get_identity(self, agent_id: str) -> Optional[AgentIdentity]:
+        """
+        Attempts to find an agent's identity by querying the configured providers in order.
+        
+        Args:
+            agent_id: The ID of the agent to find.
+            
+        Returns:
+            An AgentIdentity object if found, otherwise None.
+        """
+        if not self.silent_mode:
+            utils.console.print(f"[IdentityManager] Searching for identity for agent [cyan]{agent_id}[/cyan]...", style="dim")
+            
+        for provider in self.providers:
+            try:
+                identity = provider.get_identity(agent_id)
+                if identity:
+                    if not self.silent_mode:
+                        utils.console.print(f"[IdentityManager] Identity for agent [cyan]{agent_id}[/cyan] successfully found via [bold green]{provider.name}[/bold green] provider.", style="green")
+                    return identity
+            except Exception as e:
+                # Log errors from providers but don't stop the chain
+                if not self.silent_mode:
+                    utils.console.print(f"[IdentityManager] Error from provider '{provider.name}' for agent {agent_id}: {e}", style="bold red")
+        
+        if not self.silent_mode:
+            utils.console.print(f"[IdentityManager] Identity for agent [yellow]{agent_id}[/yellow] could not be found via any configured provider.", style="yellow")
+            
+        return None
+        
+    @staticmethod
+    def generate_agent_id(public_key_pem: str) -> str:
+        """
+        Generates a unique, deterministic agent ID from its public key.
+        This ensures that the same public key will always produce the same agent ID.
+        """
+        # Create a SHA-256 hash of the public key bytes
+        hasher = hashlib.sha256()
+        hasher.update(public_key_pem.encode('utf-8'))
+        # Use the first part of the hex digest for a readable, unique ID
+        return f"agent-{hasher.hexdigest()[:16]}"
+
     def _generate_agent_id(self) -> str:
         """Generate a new agent ID."""
         return f"agent-{uuid.uuid4()}"
@@ -135,32 +305,6 @@ class IdentityManager:
             "public_key_fingerprint": public_key_fingerprint
         }
 
-    def get_private_key(self, agent_id: str) -> Optional[str]:
-        """
-        Retrieves the private key for an agent from the keychain.
-        Returns None if not found.
-        """
-        keyring_service_name = _get_keyring_service_name_for_agent(agent_id)
-        
-        try:
-            retrieved_private_key = keyring.get_password(keyring_service_name, agent_id)
-            if retrieved_private_key:
-                if not self.silent_mode: 
-                    utils.console.print(f"[IdentityManager] Successfully retrieved private key for agent {agent_id} from system keyring (Service: '{keyring_service_name}').", style="dim")
-                return retrieved_private_key
-            else:
-                if not self.silent_mode: 
-                    utils.console.print(f"[IdentityManager] Private key for agent [yellow]{agent_id}[/yellow] was NOT FOUND in the system keyring (Service: '{keyring_service_name}').", style="bold yellow")
-                return None
-        except NoKeyringError:
-            if not self.silent_mode: 
-                utils.console.print(f"[IdentityManager] WARNING: No system keyring backend found when trying to load private key for agent [yellow]{agent_id}[/yellow] (Service: '{keyring_service_name}').", style="bold yellow")
-            return None
-        except Exception as e:
-            if not self.silent_mode: 
-                utils.console.print(f"[IdentityManager] WARNING: An unexpected error occurred while trying to retrieve private key from keyring for agent [yellow]{agent_id}[/yellow] (Service: '{keyring_service_name}'): {e}", style="bold yellow")
-            return None
-
     def delete_private_key(self, agent_id: str) -> bool:
         """
         Deletes the private key for an agent from the keychain.
@@ -182,108 +326,63 @@ class IdentityManager:
                 utils.console.print(f"[IdentityManager] Warning: No system keyring backend. Cannot delete private key for agent {agent_id} from keyring (Service: '{keyring_service_name}').", style="bold yellow")
             return False
         except Exception as e:
-            if not self.silent_mode: 
-                utils.console.print(f"[IdentityManager] Error deleting private key from keyring for agent {agent_id} (Service: '{keyring_service_name}'): {e}", style="red")
+            if not self.silent_mode:
+                utils.console.print(f"[IdentityManager] Error deleting key for {agent_id} from keyring: {e}", style="bold red")
             return False
 
     def get_all_keychain_agent_ids(self) -> List[str]:
         """
-        Discovers all agent IDs that have private keys stored in the keychain.
-        
-        Since macOS doesn't provide a list API, this uses a discovery approach
-        by checking known patterns against the backend agent list.
+        Scans the keychain for all stored agent keys and returns their IDs.
+        WARNING: This is a potentially slow and inefficient operation on some backends.
         """
-        # This method will be used by the cleanup functionality
-        # For now, return empty list - will be implemented in cleanup logic
-        return []
+        # This is a placeholder for a more robust discovery mechanism if keyring supported it.
+        # For now, we cannot list credentials across services, so this is not feasible.
+        # We will need a local manifest file to track agent IDs. This will be revisited.
+        raise NotImplementedError("Reliable discovery of all agent IDs from keyring is not currently supported.")
 
     def cleanup_orphaned_keychain_entries(self, valid_agent_ids: List[str], confirm: bool = True) -> int:
         """
-        Removes keychain entries for agents not in the valid_agent_ids list.
-        
-        Args:
-            valid_agent_ids: List of agent IDs that should be preserved
-            confirm: Whether to ask for confirmation before deletion
-            
-        Returns:
-            Number of entries deleted
+        Compares a list of valid agent IDs from the API with keys in the keychain and
+        removes any orphaned keys.
         """
-        # This will be implemented as part of the cleanup command enhancement
-        # For now, return 0
-        return 0
+        # This function also depends on the get_all_keychain_agent_ids and is thus not implementable
+        # in its current form. Will be implemented when local agent manifest is added.
+        raise NotImplementedError("Orphaned key cleanup is not supported without a local agent manifest.")
 
-    # Additional utility methods for the new architecture
-    
     def store_private_key_directly(self, agent_id: str, private_key_b64: str) -> None:
         """
-        Directly store a private key in the keychain for a given agent ID.
-        Used when you have a private key from external source (e.g., backend registration).
+        A direct method to store a private key in the keyring, bypassing generation.
+        Useful for tests or when restoring an identity.
         """
         keyring_service_name = _get_keyring_service_name_for_agent(agent_id)
         try:
             keyring.set_password(keyring_service_name, agent_id, private_key_b64)
-            if not self.silent_mode: 
-                utils.console.print(f"[IdentityManager] Private key for agent [cyan]{agent_id}[/cyan] stored in system keyring (Service: '{keyring_service_name}').", style="green")
-        except NoKeyringError:
-            msg = (f"CRITICAL SECURITY RISK: No system keyring backend found. "
-                   f"Private key for agent {agent_id} cannot be stored securely. "
-                   f"Aborting key storage. Please install and configure a keyring backend.")
             if not self.silent_mode:
-                utils.console.print(f"[IdentityManager] {msg}", style="bold red")
-            raise IdentityManagerError(msg)
-        except PasswordSetError as pse:
-            msg = f"Failed to store private key in keyring for agent {agent_id} (PasswordSetError): {pse}. Check keyring access and permissions."
-            if not self.silent_mode: 
-                utils.console.print(f"[IdentityManager] {msg}", style="bold red")
-            raise IdentityManagerError(msg) from pse
+                utils.console.print(f"Stored private key for {agent_id} in keychain.", style="dim")
+        except NoKeyringError:
+            raise IdentityManagerError("No system keyring backend found. Cannot store private key.")
         except Exception as e:
-            msg = f"An unexpected error occurred while storing private key in keyring for agent {agent_id}: {e}"
-            if not self.silent_mode: 
-                utils.console.print(f"[IdentityManager] {msg}", style="bold red")
-            raise IdentityManagerError(msg) from e
+            raise IdentityManagerError(f"Failed to store private key directly: {e}") from e
 
-# Singleton instance - this will be created with default settings
-identity_manager = IdentityManager()
+    def get_private_key(self, agent_id: str) -> Optional[str]:
+        """
+        Retrieves an agent's private key directly from the keyring.
+        Returns the base64-encoded private key string or None if not found.
+        """
+        keyring_service_name = _get_keyring_service_name_for_agent(agent_id)
+        try:
+            return keyring.get_password(keyring_service_name, agent_id)
+        except NoKeyringError:
+            return None # If no keyring, no key can be found
+        except Exception:
+            return None # Any other error, assume key is not available
 
-if __name__ == '__main__':
-    # Basic test of the IdentityManager - New Architecture
-    print("--- Testing IdentityManager (New Backend-Only Architecture) ---")
-    
-    im = IdentityManager()
-
-    # Test keypair generation
-    print("\n1. Generating keypair for test agent...")
-    try:
-        agent_id = "agent-12345678-1234-1234-1234-123456789abc"
-        keypair = im.create_keypair_for_agent(agent_id)
-        print(f"Generated keypair for {agent_id}")
-        print(f"Public key fingerprint: {keypair['public_key_fingerprint']}")
-
-        # Test private key retrieval
-        print(f"\n2. Retrieving private key for {agent_id}...")
-        retrieved_key = im.get_private_key(agent_id)
-        if retrieved_key:
-            print(f"Successfully retrieved private key from keychain")
-        else:
-            print(f"Failed to retrieve private key")
-
-        # Test private key deletion
-        print(f"\n3. Deleting private key for {agent_id}...")
-        if im.delete_private_key(agent_id):
-            print(f"Successfully deleted private key")
-        else:
-            print(f"Failed to delete private key")
-        
-        # Verify deletion
-        print(f"\n4. Verifying deletion...")
-        if not im.get_private_key(agent_id):
-            print(f"Private key no longer exists (as expected)")
-        else:
-            print(f"Error: Private key still exists after deletion")
-
-    except IdentityManagerError as e:
-        print(f"An IdentityManagerError occurred during testing: {e}")
-    except Exception as e:
-        print(f"An unexpected error occurred during testing: {e}")
-
-    print("\n--- IdentityManager Test Complete ---") 
+    def sign(self, private_key_b64: str, data: Union[str, bytes]) -> str:
+        """Signs data with the given private key."""
+        try:
+            private_key = self.decode_private_key(private_key_b64)
+            message_bytes = data.encode('utf-8') if isinstance(data, str) else data
+            signature_bytes = private_key.sign(message_bytes)
+            return base64.b64encode(signature_bytes).decode('utf-8')
+        except Exception as e:
+            raise IdentityManagerError(f"Failed to sign message: {e}") 

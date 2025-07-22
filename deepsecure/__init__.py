@@ -1,6 +1,6 @@
 '''DeepSecure SDK Package'''
 
-__version__ = "0.1.9"
+__version__ = "0.1.10"
 
 from .client import Client
 from .exceptions import (

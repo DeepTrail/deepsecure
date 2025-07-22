@@ -1,0 +1,24 @@
+# Core PEP Requirements - Essential packages only
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+httpx>=0.25.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+python-jose[cryptography]>=3.3.0  # For JWT validation with signature verification
+pyjwt>=2.8.0  # Alternative JWT library (currently using python-jose)
+toml>=0.10.2  # For reading pyproject.toml files
+
+# Split-key secret storage dependencies
+sslib  # Shamir's Secret Sharing for split-key architecture
+redis>=4.0.0  # Redis client for share storage
+cryptography>=41.0.0  # For AES-256-GCM encryption
+
+# Testing dependencies
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# For Future - Enterprise Grade: Advanced dependencies
+# structlog>=23.0.0  # For structured logging
+# prometheus-client>=0.16.0  # For metrics
+# redis>=4.0.0  # For caching and rate limiting
+# cryptography>=41.0.0  # For advanced security

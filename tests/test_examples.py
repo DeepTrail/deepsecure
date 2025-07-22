@@ -9,7 +9,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 
 # List of example scripts to be tested
-# All 7 examples from the examples/ directory
+# All 12 examples from the examples/ directory
 EXAMPLE_SCRIPTS = [
     "examples/01_create_agent_and_issue_credential.py",
     "examples/02_sdk_secret_fetch.py",
@@ -18,6 +18,11 @@ EXAMPLE_SCRIPTS = [
     "examples/05_langchain_secure_tools.py",
     "examples/06_langchain_secure_tools_without_finegrain_control.py",
     "examples/07_multi_agent_communication.py",
+    "examples/08_gateway_secret_injection_demo.py",
+    "examples/09_langchain_delegation_workflow.py",
+    "examples/10_crewai_delegation_workflow.py",
+    "examples/11_advanced_delegation_patterns.py",
+    "examples/12_platform_expansion_bootstrap.py",
 ]
 
 # Helper to check if an example script exists
@@ -32,20 +37,20 @@ def e2e_environment_is_ready():
     Automatically configures the environment variables for testing.
     """
     # Set default test environment variables if not already set
-    if not os.environ.get("DEEPSECURE_CREDSERVICE_URL"):
-        os.environ["DEEPSECURE_CREDSERVICE_URL"] = "http://127.0.0.1:8001"
+    if not os.environ.get("DEEPSECURE_DEEPTRAIL_CONTROL_URL"):
+        os.environ["DEEPSECURE_DEEPTRAIL_CONTROL_URL"] = "http://127.0.0.1:8000"
     
-    if not os.environ.get("DEEPSECURE_CREDSERVICE_API_TOKEN"):
-        os.environ["DEEPSECURE_CREDSERVICE_API_TOKEN"] = "DEFAULT_QUICKSTART_TOKEN"
+    if not os.environ.get("DEEPSECURE_DEEPTRAIL_CONTROL_API_TOKEN"):
+        os.environ["DEEPSECURE_DEEPTRAIL_CONTROL_API_TOKEN"] = "DEFAULT_QUICKSTART_TOKEN"
     
     # Check if the backend service is running
     import requests
     try:
-        response = requests.get(f"{os.environ['DEEPSECURE_CREDSERVICE_URL']}/health", timeout=5)
+        response = requests.get(f"{os.environ['DEEPSECURE_DEEPTRAIL_CONTROL_URL']}/health", timeout=5)
         if response.status_code != 200:
-            pytest.skip(f"Backend service not healthy at {os.environ['DEEPSECURE_CREDSERVICE_URL']}/health")
+            pytest.skip(f"Backend service not healthy at {os.environ['DEEPSECURE_DEEPTRAIL_CONTROL_URL']}/health")
     except requests.exceptions.RequestException:
-        pytest.skip(f"Backend service not reachable at {os.environ['DEEPSECURE_CREDSERVICE_URL']}. Please start the credservice backend.")
+        pytest.skip(f"Backend service not reachable at {os.environ['DEEPSECURE_DEEPTRAIL_CONTROL_URL']}. Please start the deeptrail-control backend.")
     
     # Set up test secrets that the examples need
     _setup_test_secrets()
@@ -103,7 +108,8 @@ def test_example_script(script_name, e2e_environment_is_ready):
             check=True,          # Raises CalledProcessError if the script fails (non-zero exit code)
             capture_output=True, # Captures stdout and stderr
             text=True,           # Decodes stdout/stderr as text
-            timeout=60           # Add a timeout to prevent hanging tests
+            timeout=60,          # Add a timeout to prevent hanging tests
+            env=os.environ.copy()  # Pass the current environment variables to the subprocess
         )
         
         print(f"--- Output from {script_name} ---")

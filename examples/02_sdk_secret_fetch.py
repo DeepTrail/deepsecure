@@ -7,7 +7,7 @@ def main():
     Demonstrates the new SDK workflow for fetching a secret.
     
     This example assumes:
-    1. The DeepSecure backend (`credservice`) is running.
+    1. The DeepSecure backend (`deeptrail-control`) is running.
     2. The CLI has been configured with `deepsecure configure`.
     3. A secret named 'my-test-api-key' has been stored in the vault, e.g.,
        `deepsecure vault store my-test-api-key --value "super-secret-value"`
@@ -34,7 +34,7 @@ def main():
         # 4. Securely fetch the secret.
         secret_name = "my-test-api-key"
         print(f"4. Fetching secret '{secret_name}' for agent '{agent_name}'...")
-        secret = client.get_secret(name=secret_name, agent_name=agent_name)
+        secret = client.get_secret(agent.id, secret_name, "/")
         print("   Secret fetched successfully.")
 
         # 5. Use the secret's value.

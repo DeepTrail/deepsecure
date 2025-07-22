@@ -8,7 +8,9 @@ import logging
 from .commands import (
     vault,
     agent,
-    configure
+    configure,
+    policy,
+    gateway,
     # invoke removed
 )
 from . import __version__
@@ -38,9 +40,11 @@ app = typer.Typer(
 )
 
 # Register command modules
-app.add_typer(vault.app, name="vault")
-app.add_typer(agent.app, name="agent")
-app.add_typer(configure.app, name="configure")
+app.add_typer(vault.app, name="vault", help="Manage secrets in the vault.")
+app.add_typer(agent.app, name="agent", help="Manage agents.")
+app.add_typer(configure.app, name="configure", help="Configure the DeepSecure CLI.")
+app.add_typer(policy.app, name="policy", help="Manage security policies.")
+app.add_typer(gateway.app, name="gateway", help="Manage and monitor the DeepSecure gateway service.")
 # app.add_typer(invoke.app, name="invoke") # Removed invoke command group
 
 # Register other commands as they're implemented
