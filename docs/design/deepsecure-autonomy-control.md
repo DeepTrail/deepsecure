@@ -2,7 +2,7 @@
 
 <div align="center">
   <h1 style="display: flex; align-items: center;">
-    <img src="assets/deeptrail_logo.png" alt="DeepSecure Logo" height="24" style="transform: translateY(2px);" />
+    <img src="../../assets/deeptrail_logo.png" alt="DeepSecure Logo" height="24" style="transform: translateY(2px);" />
     <span style="margin-left: 15px;">DeepSecure: The AI Agent Autonomy Control Platform</span>
   </h1>
   <a href="https://pypi.org/project/deepsecure/">
