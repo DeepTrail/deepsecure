@@ -2,6 +2,7 @@
 
 from . import vault
 from . import agent
+from . import gateway
 # from . import invoke # Removed invoke command
 # Import other command modules here when they're ready to be used
 # from . import audit

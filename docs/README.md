@@ -24,7 +24,7 @@ The DeepSecure SDK is designed specifically for **AI agent developers** who need
 ### Prerequisites
 
 - Python 3.9 or higher
-- A running DeepSecure credservice backend
+- A running DeepSecure Control Plane backend
 
 ### Installation
 
@@ -34,11 +34,11 @@ Install the DeepSecure package:
 pip install deepsecure
 ```
 
-### Credservice Setup
+### Backend Services Setup
 
-You'll need a running `credservice` backend to use the SDK. For complete, step-by-step instructions on how to run the service locally, please see our comprehensive:
+You'll need the DeepSecure backend services (Control Plane and Gateway) running to use the SDK. For complete, step-by-step instructions on how to run the services locally, please see our comprehensive:
 
-➡️ **[Credservice Setup Guide](./credservice-setup.md)**
+➡️ **[Backend Services Setup Guide](./backend-services-setup.md)**
 
 ## Quick Start Guide
 
@@ -194,8 +194,8 @@ The SDK automatically reads configuration from:
 
 1. **Environment variables** (recommended for production):
    ```bash
-   export DEEPSECURE_CREDSERVICE_URL="http://localhost:8000"
-   export DEEPSECURE_CREDSERVICE_API_TOKEN="your-token"
+   export DEEPSECURE_CONTROL_PLANE_URL="http://localhost:8000"
+   export DEEPSECURE_API_TOKEN="your-token"
    ```
 
 2. **Configuration file** (good for development):
@@ -263,10 +263,10 @@ scoped_client = client.with_agent("specific-agent-name")
 
 ### Common Issues
 
-**"Backend URL env var DEEPSECURE_CREDSERVICE_URL is not set"**
+**"Backend URL env var DEEPSECURE_CONTROL_PLANE_URL is not set"**
 ```bash
 # Solution: Set the environment variable
-export DEEPSECURE_CREDSERVICE_URL="http://localhost:8000"
+export DEEPSECURE_CONTROL_PLANE_URL="http://localhost:8000"
 ```
 
 **"Agent not found" errors**
@@ -306,7 +306,7 @@ For more comprehensive examples, check out our [examples directory](../examples/
 ## Next Steps
 
 - 📖 **[CLI Reference](./cli_reference.md)** - Learn about administrative commands
-- 🔧 **[Backend Setup Guide](./credservice-setup.md)** - Detailed backend configuration
+- 🔧 **[Backend Setup Guide](./backend-services-setup.md)** - Detailed backend configuration
 - 🏗️ **[Contributing Guide](../CONTRIBUTING.md)** - Help improve DeepSecure
 - 💬 **[GitHub Discussions](https://github.com/your-repo/discussions)** - Get help from the community
 

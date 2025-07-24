@@ -18,14 +18,14 @@ from cryptography.hazmat.primitives.asymmetric import ed25519 as ed25519_crypto
 from pydantic import BaseModel, ValidationError as PydanticValidationError
 
 from . import config
-from ..exceptions import (
+from .exceptions import (
     ApiError,
     AuthenticationError,
     DeepSecureClientError,
     IdentityManagerError
 )
 from . import schemas as client_main_schemas
-from .identity_manager import identity_manager
+from .identity_manager import IdentityManager
 from .agent_client import client as agent_api_client_for_setup
 from .crypto.key_manager import key_manager as global_key_manager_instance
 from .audit_logger import audit_logger
@@ -102,7 +102,7 @@ class VaultClient(base_client.BaseClient):
         # print("\nDEBUG [VaultClient in client.py]: TOP OF issue METHOD REACHED\n", file=sys.stderr)
         logger.info(f"[VaultClient(client.py).issue] Attempting for agent: {agent_id}, scope: {scope}, ttl: {ttl}s")
         
-        agent_private_key_b64 = identity_manager.get_private_key(agent_id)
+        agent_private_key_b64 = self._identity_manager.get_private_key(agent_id)
         if not agent_private_key_b64: 
             raise DeepSecureClientError(f"Private key for agent {agent_id} not found in keychain.")
         
@@ -248,7 +248,22 @@ class VaultClient(base_client.BaseClient):
             logger.error(f"Failed to retrieve secret {name}: {e}")
             raise DeepSecureClientError(f"Failed to retrieve secret '{name}': {e}") from e
 
-client = VaultClient()
+class AgentClient:
+    """
+    Client for managing agent identities.
+    """
+    def __init__(self, authenticator):
+        super().__init__(authenticator)
+
+    def create(self, public_key_b64: str, name: str = None) -> dict:
+        """
+        Creates a new agent identity.
+        """
+        return self._request(
+            "POST",
+            "/api/v1/agents/",
+            json={"public_key": public_key_b64, "name": name},
+        )
 
 if __name__ == "__main__":
     print("DeepSecure VaultClient Test Script with Self-Setup/Teardown")
@@ -267,7 +282,7 @@ if __name__ == "__main__":
         client = VaultClient()
         
         print(f"\n[SETUP] Registering a new dynamic agent for this test run: '{test_agent_name}'")
-        temp_keys_for_setup = identity_manager.generate_ed25519_keypair_raw_b64()
+        temp_keys_for_setup = self._identity_manager.generate_ed25519_keypair_raw_b64()
         
         backend_reg_response = agent_api_client_for_setup.register_agent(
             public_key=temp_keys_for_setup["public_key"],
@@ -278,7 +293,7 @@ if __name__ == "__main__":
         if not test_agent_id_for_run:
             raise Exception("Failed to get agent_id from backend registration during setup.")
         
-        identity_manager.store_private_key_directly(
+        self._identity_manager.store_private_key_directly(
             agent_id=test_agent_id_for_run,
             private_key_b64=temp_keys_for_setup["private_key"]
         )
@@ -317,7 +332,7 @@ if __name__ == "__main__":
         else: print("Assertion Passed: Credential is revoked.")
 
         print(f"\n--- Testing: Agent Operations (Rotate Key for {test_agent_id_for_run}) ---")
-        new_rotation_keys = identity_manager.generate_ed25519_keypair_raw_b64()
+        new_rotation_keys = self._identity_manager.generate_ed25519_keypair_raw_b64()
         new_public_key_for_rotation_b64 = new_rotation_keys["public_key"]
         new_private_key_for_rotation_b64 = new_rotation_keys["private_key"]
         print(f"New public key for rotation: {new_public_key_for_rotation_b64}")
@@ -335,11 +350,9 @@ if __name__ == "__main__":
             if agent_details_initial.name:
                 current_agent_name = agent_details_initial.name
 
-        identity_manager.persist_generated_identity(
-            agent_id=test_agent_id_for_run, public_key_b64=new_public_key_for_rotation_b64, 
-            private_key_b64=new_private_key_for_rotation_b64, 
-            name=current_agent_name, 
-            created_at_timestamp=created_at_ts_for_persist
+        self._identity_manager.store_private_key_directly(
+            agent_id=test_agent_id_for_run, 
+            private_key_b64=new_private_key_for_rotation_b64
         )
         print("Local identity store updated for rotated keys.")
         agent_details_after_rotation = client.get_agent_details(agent_id=test_agent_id_for_run)
@@ -364,7 +377,7 @@ if __name__ == "__main__":
             except Exception as e_del_be:
                 print(f"[TEARDOWN] Error deleting agent {test_agent_id_for_run} from backend: {e_del_be}")
             try:
-                identity_manager.delete_identity(agent_id=test_agent_id_for_run)
+                self._identity_manager.delete_private_key(test_agent_id_for_run)
                 print(f"[TEARDOWN] Local identity for {test_agent_id_for_run} (metadata & keyring) deleted.")
             except Exception as e_del_loc:
                 print(f"[TEARDOWN] Error deleting local identity for {test_agent_id_for_run}: {e_del_loc}")

@@ -69,4 +69,18 @@ class AgentDetailsResponse(BaseModel):
 
     model_config = {
         "populate_by_name": True, # Allows use of alias field names for population
-    } 
+    }
+
+# --- Policy Schemas ---
+
+class PolicyResponse(BaseModel):
+    """
+    Response model for a policy object.
+    """
+    id: str
+    name: str
+    description: Optional[str] = None
+    effect: str
+    actions: List[str]
+    resources: List[str]
+    agent_id: str 

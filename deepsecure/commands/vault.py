@@ -18,13 +18,36 @@ app = typer.Typer(
 @app.command()
 def store(
     name: str = typer.Argument(..., help="The name of the secret to store."),
-    value: str = typer.Option(..., "--value", "-v", help="The secret value to store."),
+    agent_id: Optional[str] = typer.Option(None, "--agent-id", help="The ID of the agent to associate the secret with."),
+    value: str = typer.Option(
+        None,  # Default to None to trigger prompt if not provided
+        "--value",
+        "-v",
+        help="The secret value to store. Can also be set via DEEPSECURE_SECRET_VALUE env var.",
+        envvar="DEEPSECURE_SECRET_VALUE",
+        prompt="Secret Value",
+        hide_input=True,
+        confirmation_prompt=True,
+    ),
 ):
     """Stores a secret in the DeepSecure vault."""
+    if value is None:
+        cli_utils.print_error("Secret value cannot be empty.")
+        raise typer.Exit(code=1)
     try:
         client = deepsecure.Client()
-        client.store_secret(name=name, value=value)
-        cli_utils.print_success(f"Secret '{name}' stored successfully.")
+        if agent_id:
+            client.store_secret(agent_id=agent_id, name=name, secret_value=value)
+            cli_utils.print_success(f"Secret '{name}' stored successfully for agent '{agent_id}'.")
+        else:
+            # We need to decide on a direct storage path.
+            # For now, let's assume direct storage requires a target_base_url for the gateway.
+            # This part of the CLI needs further design.
+            # For this test, we will always provide an agent_id.
+            cli_utils.print_error("Storing a global secret via the CLI is not yet fully supported.")
+            cli_utils.print_error("Please provide an --agent-id.")
+            raise typer.Exit(code=1)
+
     except DeepSecureError as e:
         cli_utils.print_error(f"Failed to store secret: {e}")
         raise typer.Exit(code=1)

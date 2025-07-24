@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  db_test:
+    image: postgres:13
+    container_name: deeptrail_db_test
+    environment:
+      - POSTGRES_USER=deepsecure
+      - POSTGRES_PASSWORD=deepsecure
+      - POSTGRES_DB=deepsecure_test
+    ports:
+      - "5439:5432" # Use a different, less common port to avoid conflicts
+    volumes:
+      - deeptrail_postgres_data_test:/var/lib/postgresql/data
+    networks:
+      - deeptrail-test-net
+
+  api_test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deeptrail_api_test
+    depends_on:
+      - db_test
+    environment:
+      - DATABASE_URL=postgresql://deepsecure:deepsecure@db_test:5432/deepsecure_test
+      - SECRET_KEY=test_secret_key_for_jwt_testing
+      - DB_HOST=db_test
+      - POSTGRES_USER=deepsecure
+      - POSTGRES_PASSWORD=deepsecure
+      - POSTGRES_DB=deepsecure_test
+    ports:
+      - "8000:8001" # Host port:Container port (matches run_service.sh)
+    command: ["./run_service.sh"]
+    networks:
+      - deeptrail-test-net
+
+volumes:
+  deeptrail_postgres_data_test:
+    driver: local
+
+networks:
+  deeptrail-test-net:
+    driver: bridge 
