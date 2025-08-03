@@ -61,7 +61,7 @@ Expected response:
 ```json
 {
   "service": "DeepSecure Control Plane",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "status": "ok",
   "dependencies": {
     "database": "connected"
@@ -78,7 +78,7 @@ Expected response:
 ```json
 {
   "service": "DeepSecure Gateway",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "status": "ok",
   "dependencies": {
     "control_plane": "connected",
