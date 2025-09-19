@@ -79,7 +79,7 @@ class AgentClient(BaseClient):
 
         # 2. Call the unauthenticated endpoint to create the agent
         agent_data = self.create_agent_unauthenticated(
-            public_key=public_key_b64, name=name
+            public_key=public_key_b64, name=name, description=description
         )
         agent_id = agent_data["agent_id"]
 
@@ -101,7 +101,7 @@ class AgentClient(BaseClient):
             agent_data=agent_data_dict
         )
 
-    def create_agent_unauthenticated(self, public_key: str, name: Optional[str]) -> Dict[str, Any]:
+    def create_agent_unauthenticated(self, public_key: str, name: Optional[str], description: Optional[str] = None) -> Dict[str, Any]:
         """
         Creates a new agent via a standardized unauthenticated API call.
         This is used for the initial agent creation from the CLI.
@@ -112,6 +112,7 @@ class AgentClient(BaseClient):
         payload = {
             "public_key": public_key,
             "name": name,
+            "description": description,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
 
