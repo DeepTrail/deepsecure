@@ -1,0 +1,2097 @@
+openapi: 3.0.3
+info:
+  title: DeepSecure API - Dual Service Architecture
+  description: |
+    # DeepSecure Python SDK & Services API
+    
+    DeepSecure provides a comprehensive zero-trust security control plane for AI agents through a dual-service architecture:
+    
+    ## 🧠 **Control Plane (`deeptrail-control`)** 
+    **Port 8000** - Policy Decision Point (PDP) and agent management
+    
+    - **Agent Identity Management**: Create, manage, and authenticate AI agents with Ed25519 cryptographic identities
+    - **Authentication & Authorization**: Challenge-response authentication, JWT token issuance with claims
+    - **Policy Engine**: Define and manage fine-grained access policies for agents  
+    - **Credential Issuance**: Issue ephemeral, time-bound access tokens for external services
+    - **Agent Bootstrapping**: Bootstrap agent identities from cloud platforms (K8s, AWS, Azure, Docker)
+    - **Audit & Compliance**: Comprehensive logging of all security events
+    
+    ## 🚀 **Data Plane (`deeptrail-gateway`)**
+    **Port 8002** - Policy Enforcement Point (PEP) and runtime operations
+    
+    - **Request Proxying**: Transparent proxy for all agent external API calls
+    - **Secret Injection**: Automatic injection of API keys and credentials at runtime
+    - **Policy Enforcement**: Real-time access control based on JWT claims and policies
+    - **Split-Key Security**: JIT (Just-In-Time) secret reassembly for enhanced security
+    - **Rate Limiting & Filtering**: Request validation, sanitization, and throttling
+    
+    ## 🔧 **Authentication & Security**
+    
+    - **Agent Authentication**: Ed25519 signature-based challenge-response flow
+    - **API Key Authentication**: Bearer token authentication for CLI and administrative operations
+    - **JWT Tokens**: Claims-based authorization with agent permissions and resource scoping
+    - **Split-Key Architecture**: Secrets are split between Control Plane and Gateway for enhanced security
+    
+    ## 📋 **Core Workflows**
+    
+    1. **Agent Registration**: Register agent with public key → Get agent ID
+    2. **Authentication**: Request challenge → Sign nonce → Exchange for JWT
+    3. **Runtime Operations**: Use JWT → Gateway validates → Access external APIs with injected secrets
+    4. **Policy Management**: Define policies → Apply to agents → Enforce at gateway
+    5. **Audit & Monitoring**: All actions logged → Compliance reporting
+    
+    ## 🌐 **Service URLs**
+    - **Control Plane**: `http://localhost:8000/api/v1/` (Management operations)
+    - **Gateway**: `http://localhost:8002/` (Runtime operations, proxying)
+    - **Production**: Replace localhost with your deployed service URLs
+  version: "0.1.10"
+  contact:
+    name: DeepSecure Support
+    url: https://github.com/DeepTrail/deepsecure
+    email: mahendra@deeptrail.com
+  license:
+    name: Apache 2.0
+    url: https://opensource.org/licenses/Apache-2.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Control Plane - Management Operations (Local Development)
+  - url: http://localhost:8002
+    description: Gateway - Runtime Operations (Local Development)
+  - url: https://control.deepsecure.yourdomain.com/api/v1
+    description: Control Plane - Management Operations (Production)
+  - url: https://gateway.deepsecure.yourdomain.com
+    description: Gateway - Runtime Operations (Production)
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  # ===== CONTROL PLANE ENDPOINTS =====
+  
+  # --- Health & Status ---
+  /control/health:
+    get:
+      summary: Health Check
+      description: |
+        Health check endpoint for the DeepSecure Control Plane service.
+        Returns service status and database connectivity information.
+      tags: [Control Plane]
+      security: []
+      responses:
+        '200':
+          description: Control Plane is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: "DeepSecure Control Plane"
+                  version:
+                    type: string
+                    example: "0.1.10"
+                  status:
+                    type: string
+                    example: "ok"
+                  dependencies:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        example: "connected"
+  
+  # --- Agent Management ---
+  /agents:
+    get:
+      summary: List Agents
+      description: |
+        Retrieve a paginated list of registered agents.
+        Supports pagination with skip/limit parameters.
+      tags: [Agents]
+      parameters:
+        - name: skip
+          in: query
+          description: Number of records to skip for pagination
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Maximum number of records to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: List of agents retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    
+    post:
+      summary: Register New Agent
+      description: |
+        Register a new AI agent in the system with its Ed25519 public key.
+        The agent_id will be automatically generated if not provided.
+      tags: [Agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentCreate'
+      responses:
+        '201':
+          description: Agent registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Agent with this public key already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  /agents/{agent_id}:
+    get:
+      summary: Get Agent by ID
+      description: Retrieve detailed information about a specific agent.
+      tags: [Agents]
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          description: The unique agent identifier
+          schema:
+            type: string
+            example: "agent-ebd9cd4a-1234-5678-90ab-cdef01234567"
+      responses:
+        '200':
+          description: Agent details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    patch:
+      summary: Update Agent
+      description: Partially update an agent's properties.
+      tags: [Agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentUpdate'
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          description: The unique agent identifier
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      summary: Delete (Deactivate) Agent
+      description: Deactivate or delete an agent by ID.
+      tags: [Agents]
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          description: The unique agent identifier
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent deleted or deactivated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  # --- Authentication & Authorization ---
+  /auth/challenge:
+    post:
+      summary: Request Authentication Challenge
+      description: |
+        Generate and return a single-use challenge nonce that the agent must sign
+        with its private key to prove identity ownership.
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequest'
+      responses:
+        '200':
+          description: Challenge nonce generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChallengeResponse'
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  /auth/token:
+    post:
+      summary: Exchange Signed Challenge for JWT
+      description: |
+        Authenticate an agent by verifying a signed nonce and return a JWT access token
+        with embedded permissions and resource scopes.
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '200':
+          description: JWT token issued successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+        '400':
+          description: Invalid or expired nonce
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid signature or authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  /auth/delegate:
+    post:
+      summary: Delegate Access to Another Agent
+      description: |
+        Allow an authenticated agent to generate a temporary, scoped credential (macaroon)
+        and delegate it to another agent for specific resources and permissions.
+      tags: [Authentication]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DelegationRequest'
+      responses:
+        '200':
+          description: Delegation token created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelegationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Not authorized to delegate this resource
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  # --- Bootstrap Endpoints ---
+  /auth/bootstrap/kubernetes:
+    post:
+      summary: Bootstrap Agent Identity from Kubernetes
+      description: |
+        Bootstrap an agent identity using a Kubernetes Service Account Token (SAT).
+        This allows agents running in Kubernetes to automatically obtain cryptographic identities.
+      tags: [Bootstrap]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KubernetesBootstrapRequest'
+      responses:
+        '200':
+          description: Agent identity bootstrapped successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootstrapResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Token validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootstrapError'
+        '403':
+          description: Policy not found for this workload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootstrapError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  /auth/bootstrap/aws:
+    post:
+      summary: Bootstrap Agent Identity from AWS
+      description: |
+        Bootstrap an agent identity using an AWS STS GetCallerIdentity token.
+        This allows agents running in AWS to automatically obtain cryptographic identities.
+      tags: [Bootstrap]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AWSBootstrapRequest'
+      responses:
+        '200':
+          description: Agent identity bootstrapped successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootstrapResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  /auth/bootstrap/azure:
+    post:
+      summary: Bootstrap Agent Identity from Azure
+      description: |
+        Bootstrap an agent identity using an Azure Managed Identity token.
+        This allows agents running in Azure to automatically obtain cryptographic identities.
+      tags: [Bootstrap]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AzureBootstrapRequest'
+      responses:
+        '200':
+          description: Agent identity bootstrapped successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootstrapResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  /auth/bootstrap/docker:
+    post:
+      summary: Bootstrap Agent Identity from Docker
+      description: |
+        Bootstrap an agent identity using Docker container metadata.
+        This allows agents running in Docker containers to automatically obtain cryptographic identities.
+      tags: [Bootstrap]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerBootstrapRequest'
+      responses:
+        '200':
+          description: Agent identity bootstrapped successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootstrapResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  # --- Vault & Credential Management ---
+  /vault/store:
+    post:
+      summary: Store Secret in Vault
+      description: |
+        Store or update a secret in the DeepSecure vault.
+        Secrets are used for secure API key management and injection at runtime.
+      tags: [Vault]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecretStoreRequest'
+      responses:
+        '201':
+          description: Secret stored successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretStoreResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /vault/secrets:
+    get:
+      summary: List Secrets
+      description: List secrets from the vault (admin/CLI use).
+      tags: [Vault]
+      responses:
+        '200':
+          description: Secrets listed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secrets:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  /vault/secrets/{name}:
+    get:
+      summary: Retrieve Secret by Name
+      description: |
+        Retrieve a secret directly from the vault by name.
+        This is for administrative/CLI use and bypasses the ephemeral credential system.
+      tags: [Vault]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The secret name
+          schema:
+            type: string
+            example: "openai-api-key"
+      responses:
+        '200':
+          description: Secret retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    example: "openai-api-key"
+                  value:
+                    type: string
+                    example: "sk-..."
+                  created_at:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Secret not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  /vault/credentials:
+    post:
+      summary: Issue Ephemeral Credential
+      description: |
+        Issue an ephemeral, time-bound access credential for an agent.
+        The credential contains the necessary permissions and can be used to access external services.
+      tags: [Vault]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialIssueRequest'
+      responses:
+        '201':
+          description: Credential issued successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialIssueResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Agent is not active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  /vault/credentials/{credential_id}/revoke:
+    post:
+      summary: Revoke Credential
+      description: |
+        Revoke an existing credential by setting its revoked_at timestamp.
+        This immediately invalidates the credential across all services.
+      tags: [Vault]
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          description: The credential ID to revoke
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Credential revoked successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialRevokeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Credential not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /vault/credentials/{credential_id}/verify:
+    get:
+      summary: Verify Credential
+      description: Verify whether a credential is valid or revoked.
+      tags: [Vault]
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  # --- Policy Management ---
+  /policies:
+    get:
+      summary: List Policies
+      description: |
+        Retrieve a list of access control policies defined in the system.
+        Policies control which agents can access which resources.
+      tags: [Policies]
+      parameters:
+        - name: skip
+          in: query
+          description: Number of records to skip for pagination
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Maximum number of records to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 100
+      responses:
+        '200':
+          description: List of policies retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Policy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /policies/{policy_id}:
+    get:
+      summary: Get Policy by ID
+      tags: [Policies]
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Policy retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      summary: Delete Policy
+      tags: [Policies]
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Policy deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      summary: Create Policy
+      description: Create a new access control policy.
+      tags: [Policies]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyCreate'
+      responses:
+        '201':
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  /policies/attestation:
+    get:
+      summary: List Attestation Policies
+      description: |
+        Retrieve a list of attestation policies used for agent bootstrapping.
+        These policies control which workloads can bootstrap agent identities.
+      tags: [Policies]
+      parameters:
+        - name: skip
+          in: query
+          description: Number of records to skip for pagination
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Maximum number of records to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 100
+      responses:
+        '200':
+          description: List of attestation policies retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AttestationPolicy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      summary: Create Attestation Policy
+      tags: [Policies]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttestationPolicy'
+      responses:
+        '201':
+          description: Attestation policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttestationPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /policies/attestation/{policy_id}:
+    get:
+      summary: Get Attestation Policy by ID
+      tags: [Policies]
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Attestation policy retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttestationPolicy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      summary: Update Attestation Policy
+      tags: [Policies]
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttestationPolicy'
+      responses:
+        '200':
+          description: Attestation policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttestationPolicy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      summary: Delete Attestation Policy
+      tags: [Policies]
+      parameters:
+        - name: policy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Attestation policy deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  # --- Internal Endpoints (Service-to-Service) ---
+  /internal/secrets/{secret_name}/share:
+    get:
+      summary: Get Secret Share (Internal)
+      description: |
+        Internal endpoint for the gateway to retrieve the control plane's share of a secret.
+        This is part of the split-key security architecture.
+      tags: [Control Plane - Internal]
+      security:
+        - InternalApiKey: []
+      parameters:
+        - name: secret_name
+          in: path
+          required: true
+          description: The name of the secret
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Secret share retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  share_1:
+                    type: string
+                    description: Control plane's share of the secret
+                  target_base_url:
+                    type: string
+                    description: Target URL for this secret (if configured)
+                    nullable: true
+        '401':
+          description: Invalid or missing internal API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Secret not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /internal/shares:
+    post:
+      summary: Ingest Secret Share (Internal)
+      description: Internal endpoint for the control plane to push share_2 to gateway.
+      tags: [Gateway - Internal]
+      security:
+        - InternalApiKey: []
+      servers:
+        - url: http://localhost:8002
+        - url: https://gateway.deepsecure.yourdomain.com
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                secret_name:
+                  type: string
+                share_value:
+                  type: string
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '201':
+          description: Share stored
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  
+  # ===== GATEWAY ENDPOINTS =====
+  
+  # Gateway endpoints use different server base URL (port 8002)
+  # Health endpoints
+  # /:
+  #   get:
+  #     summary: Gateway Root Health Check
+  #     description: Basic health check endpoint for the DeepSecure Gateway service.
+  #     tags: [Gateway - Health]
+  #     security: []
+  #     servers:
+  #       - url: http://localhost:8002
+  #         description: Gateway - Runtime Operations (Local Development)
+  #       - url: https://gateway.deepsecure.yourdomain.com
+  #         description: Gateway - Runtime Operations (Production)
+  #     responses:
+  #       '200':
+  #         description: Gateway is running and healthy
+  #         content:
+  #           application/json:
+  #             schema:
+  #               type: object
+  #               properties:
+  #                 message:
+  #                   type: string
+  #                   example: "DeepTrail Gateway is running"
+  #                 status:
+  #                   type: string
+  #                   example: "healthy"
+  #                 version:
+  #                   type: string
+  #                   example: "0.1.10"
+  #                 proxy_type:
+  #                   type: string
+  #                   example: "deeptrail_gateway"
+  
+  # Gateway health endpoint  
+  /health:
+    get:
+      summary: Health Check
+      description: |
+        Comprehensive health check endpoint for the DeepSecure Gateway service.
+        Returns service status and dependency connectivity (Control Plane and Redis).
+      tags: [Gateway]
+      security: []
+      servers:
+        - url: http://localhost:8002
+          description: Gateway - Runtime Operations (Local Development)
+        - url: https://gateway.deepsecure.yourdomain.com
+          description: Gateway - Runtime Operations (Production)
+      responses:
+        '200':
+          description: Gateway is healthy with all dependencies connected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: "DeepSecure Gateway"
+                  version:
+                    type: string
+                    example: "0.1.10"
+                  status:
+                    type: string
+                    example: "ok"
+                  dependencies:
+                    type: object
+                    properties:
+                      control_plane:
+                        type: string
+                        example: "connected"
+                      redis:
+                        type: string
+                        example: "connected"
+  
+  /ready:
+    get:
+      summary: Readiness Check  
+      description: |
+        Kubernetes-style readiness check for the Gateway.
+        Returns 200 when ready to accept requests, 503 when not ready.
+      tags: [Gateway]
+      security: []
+      servers:
+        - url: http://localhost:8002
+          description: Gateway - Runtime Operations (Local Development)
+        - url: https://gateway.deepsecure.yourdomain.com
+          description: Gateway - Runtime Operations (Production)
+      responses:
+        '200':
+          description: Gateway is ready to accept requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ready"
+                  message:
+                    type: string
+                    example: "Gateway is ready to accept requests"
+        '503':
+          description: Gateway is not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "not_ready"
+                  message:
+                    type: string
+                    example: "Gateway is not ready to accept requests"
+                  error:
+                    type: string
+                    example: "Control plane unreachable"
+  
+  /metrics:
+    get:
+      summary: Gateway Metrics
+      description: |
+        Basic metrics endpoint for monitoring and observability.
+        Returns operational metrics for the gateway service.
+      tags: [Gateway - Monitoring]
+      security: []
+      servers:
+        - url: http://localhost:8002
+          description: Gateway - Runtime Operations (Local Development)
+        - url: https://gateway.deepsecure.yourdomain.com
+          description: Gateway - Runtime Operations (Production)
+      responses:
+        '200':
+          description: Metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests_processed:
+                    type: integer
+                    example: 1250
+                  gateway_status:
+                    type: integer
+                    example: 1
+                    description: 1 if healthy, 0 if unhealthy
+                  version:
+                    type: string
+                    example: "0.1.10"
+                  proxy_type:
+                    type: string
+                    example: "deeptrail_gateway"
+        '500':
+          description: Error collecting metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Error collecting metrics"
+  
+  /config:
+    get:
+      summary: Gateway Configuration
+      description: |
+        Get current gateway configuration settings.
+        Useful for debugging and operational visibility.
+      tags: [Gateway - Configuration]
+      security: []
+      servers:
+        - url: http://localhost:8002
+          description: Gateway - Runtime Operations (Local Development)
+        - url: https://gateway.deepsecure.yourdomain.com
+          description: Gateway - Runtime Operations (Production)
+      responses:
+        '200':
+          description: Configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proxy_type:
+                    type: string
+                    example: "deeptrail_gateway"
+                  routing:
+                    type: object
+                    properties:
+                      target_header:
+                        type: string
+                        example: "X-Target-Base-URL"
+                      path_prefix:
+                        type: string
+                        example: "/proxy"
+                  authentication:
+                    type: object
+                    properties:
+                      jwt_validation:
+                        type: boolean
+                        example: true
+                  logging:
+                    type: object
+                    properties:
+                      enable_request_logging:
+                        type: boolean
+                        example: true
+                      log_level:
+                        type: string
+                        example: "INFO"
+  /logging/stats:
+    get:
+      summary: Gateway Logging Stats
+      tags: [Gateway - Monitoring]
+      security: []
+      servers:
+        - url: http://localhost:8002
+        - url: https://gateway.deepsecure.yourdomain.com
+      responses:
+        '200':
+          description: Logging stats
+          content:
+            application/json:
+              schema:
+                type: object
+  /logging/config:
+    get:
+      summary: Gateway Logging Config
+      tags: [Gateway - Monitoring]
+      security: []
+      servers:
+        - url: http://localhost:8002
+        - url: https://gateway.deepsecure.yourdomain.com
+      responses:
+        '200':
+          description: Logging configuration
+          content:
+            application/json:
+              schema:
+                type: object
+  /logging/active:
+    get:
+      summary: Gateway Active Requests
+      tags: [Gateway - Monitoring]
+      security: []
+      servers:
+        - url: http://localhost:8002
+        - url: https://gateway.deepsecure.yourdomain.com
+      responses:
+        '200':
+          description: Active request information
+          content:
+            application/json:
+              schema:
+                type: object
+  
+  # Main proxy endpoint
+  /proxy/{path}:
+    get:
+      summary: Proxy GET Request
+      description: |
+        Proxy GET requests to external services with automatic secret injection.
+        The target URL is specified via the X-Target-Base-URL header.
+        Note: X-Target-Base-URL is treated as a base URL; the final upstream URL is composed as:
+        <base>.rstrip('/') + '/' + {path}.lstrip('/').
+      tags: [Gateway - Proxy]
+      security:
+        - BearerAuth: []
+      servers:
+        - url: http://localhost:8002
+          description: Gateway - Runtime Operations (Local Development)
+        - url: https://gateway.deepsecure.yourdomain.com
+          description: Gateway - Runtime Operations (Production)
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: The path component to append to the target URL
+          schema:
+            type: string
+            example: "v1/chat/completions"
+        - name: X-Target-Base-URL
+          in: header
+          required: true
+          description: The base URL of the target service
+          schema:
+            type: string
+            example: "https://api.openai.com"
+        - name: Authorization
+          in: header
+          required: true
+          description: Bearer JWT token from the Control Plane
+          schema:
+            type: string
+            example: "Bearer eyJhbGciOiJIUzI1NiIs..."
+      responses:
+        '200':
+          description: Request proxied successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Response from the target service
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          description: Invalid proxy request or missing required headers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid proxy request"
+                  message:
+                    type: string
+                    example: "X-Target-Base-URL header is required"
+                  required_header:
+                    type: string
+                    example: "X-Target-Base-URL"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Access denied by policy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "access_denied"
+                  message:
+                    type: string
+                    example: "Agent not authorized to access this resource"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    
+    post:
+      summary: Proxy POST Request
+      description: |
+        Proxy POST requests to external services with automatic secret injection.
+        The target URL is specified via the X-Target-Base-URL header.
+        Note: X-Target-Base-URL is treated as a base URL; the final upstream URL is composed as:
+        <base>.rstrip('/') + '/' + {path}.lstrip('/').
+      tags: [Gateway - Proxy]
+      security:
+        - BearerAuth: []
+      servers:
+        - url: http://localhost:8002
+          description: Gateway - Runtime Operations (Local Development)
+        - url: https://gateway.deepsecure.yourdomain.com
+          description: Gateway - Runtime Operations (Production)
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: The path component to append to the target URL
+          schema:
+            type: string
+            example: "v1/chat/completions"
+        - name: X-Target-Base-URL
+          in: header
+          required: true
+          description: The base URL of the target service
+          schema:
+            type: string
+            example: "https://api.openai.com"
+        - name: Authorization
+          in: header
+          required: true
+          description: Bearer JWT token from the Control Plane
+          schema:
+            type: string
+            example: "Bearer eyJhbGciOiJIUzI1NiIs..."
+      requestBody:
+        description: Request body to forward to the target service
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Request payload for the target service
+              example:
+                model: "gpt-4"
+                messages: [{"role": "user", "content": "Hello"}]
+                max_tokens: 100
+      responses:
+        '200':
+          description: Request proxied successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Response from the target service
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          description: Invalid proxy request or missing required headers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid proxy request"
+                  message:
+                    type: string
+                    example: "X-Target-Base-URL header is required"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Access denied by policy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "access_denied"
+                  message:
+                    type: string
+                    example: "Agent not authorized to access this resource"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    
+    put:
+      summary: Proxy PUT Request
+      description: |
+        Proxy PUT requests to external services with automatic secret injection.
+        The target URL is specified via the X-Target-Base-URL header.
+        Note: X-Target-Base-URL is treated as a base URL; the final upstream URL is composed as:
+        <base>.rstrip('/') + '/' + {path}.lstrip('/').
+      tags: [Gateway - Proxy]
+      security:
+        - BearerAuth: []
+      servers:
+        - url: http://localhost:8002
+          description: Gateway - Runtime Operations (Local Development)
+        - url: https://gateway.deepsecure.yourdomain.com
+          description: Gateway - Runtime Operations (Production)
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: The path component to append to the target URL
+          schema:
+            type: string
+        - name: X-Target-Base-URL
+          in: header
+          required: true
+          description: The base URL of the target service
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          description: Bearer JWT token from the Control Plane
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Request proxied successfully
+          content:
+            application/json:
+              schema:
+                type: object
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Access denied by policy
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    
+    delete:
+      summary: Proxy DELETE Request
+      description: |
+        Proxy DELETE requests to external services with automatic secret injection.
+        The target URL is specified via the X-Target-Base-URL header.
+        Note: X-Target-Base-URL is treated as a base URL; the final upstream URL is composed as:
+        <base>.rstrip('/') + '/' + {path}.lstrip('/').
+      tags: [Gateway - Proxy]
+      security:
+        - BearerAuth: []
+      servers:
+        - url: http://localhost:8002
+          description: Gateway - Runtime Operations (Local Development)
+        - url: https://gateway.deepsecure.yourdomain.com
+          description: Gateway - Runtime Operations (Production)
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: The path component to append to the target URL
+          schema:
+            type: string
+        - name: X-Target-Base-URL
+          in: header
+          required: true
+          description: The base URL of the target service
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          description: Bearer JWT token from the Control Plane
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Request proxied successfully
+          content:
+            application/json:
+              schema:
+                type: object
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Access denied by policy
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT Bearer token issued by the Control Plane after successful agent authentication.
+        The token contains agent identity, permissions, and resource scopes.
+    
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: |
+        API Key authentication for CLI and administrative operations.
+        Format: "Bearer YOUR_API_TOKEN"
+    
+    InternalApiKey:
+      type: apiKey
+      in: header
+      name: X-Internal-API-Token
+      description: |
+        Internal API key for service-to-service communication between
+        the Control Plane and Gateway.
+
+  schemas:
+    # --- Agent Schemas ---
+    AgentCreate:
+      type: object
+      required:
+        - public_key
+      properties:
+        agent_id:
+          type: string
+          description: Optional agent ID. If not provided, one will be generated.
+          example: "agent-custom-001"
+        name:
+          type: string
+          maxLength: 255
+          example: "MyAwesomeAgent"
+          description: Human-readable name for the agent
+        description:
+          type: string
+          example: "Agent for processing order data"
+          description: Optional description of the agent's purpose
+        public_key:
+          type: string
+          format: base64
+          description: Base64-encoded Ed25519 public key (32 bytes)
+          example: "AAAAC3NzaC1lZDI1NTE5AAAAIDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    
+    Agent:
+      type: object
+      properties:
+        agent_id:
+          type: string
+          example: "agent-ebd9cd4a-1234-5678-90ab-cdef01234567"
+        name:
+          type: string
+          example: "MyAwesomeAgent"
+        description:
+          type: string
+          example: "Agent for processing order data"
+        public_key:
+          type: string
+          format: base64
+          example: "AAAAC3NzaC1lZDI1NTE5AAAAIDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        status:
+          type: string
+          example: "active"
+          enum: [active, inactive, revoked]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+    AgentUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive, revoked]
+    
+    AgentList:
+      type: object
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/Agent'
+        total:
+          type: integer
+          description: Total number of agents returned
+    
+    # --- Authentication Schemas ---
+    ChallengeRequest:
+      type: object
+      required:
+        - agent_id
+      properties:
+        agent_id:
+          type: string
+          example: "agent-ebd9cd4a-1234-5678-90ab-cdef01234567"
+    
+    ChallengeResponse:
+      type: object
+      properties:
+        nonce:
+          type: string
+          description: Single-use nonce that must be signed by the agent
+          example: "2024-01-15T10:30:00Z-agent-ebd9cd4a-1234567890abcdef"
+    
+    TokenRequest:
+      type: object
+      required:
+        - agent_id
+        - nonce
+        - signature
+      properties:
+        agent_id:
+          type: string
+          example: "agent-ebd9cd4a-1234-5678-90ab-cdef01234567"
+        nonce:
+          type: string
+          example: "2024-01-15T10:30:00Z-agent-ebd9cd4a-1234567890abcdef"
+        signature:
+          type: string
+          format: base64
+          description: Base64-encoded Ed25519 signature of the nonce
+          example: "MEUCIQCxxx..."
+    
+    Token:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: JWT access token with embedded agent permissions
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        token_type:
+          type: string
+          example: "bearer"
+    
+    # --- Delegation Schemas ---
+    DelegationRequest:
+      type: object
+      required:
+        - target_agent_id
+        - resource
+        - permissions
+        - ttl_seconds
+      properties:
+        target_agent_id:
+          type: string
+          example: "agent-target-1234"
+        resource:
+          type: string
+          example: "openai-api"
+        permissions:
+          type: array
+          items:
+            type: string
+          example: ["read", "write"]
+        ttl_seconds:
+          type: integer
+          example: 3600
+          description: Time-to-live for the delegation in seconds
+    
+    DelegationResponse:
+      type: object
+      properties:
+        delegation_token:
+          type: string
+          description: Macaroon delegation token
+          example: "MDAxY2xvY2F0aW9uIGh0dHA6Ly9leGFtcGxlLm9yZy8KMDAyY2lkZW50aWZpZXIg..."
+    
+    # --- Bootstrap Schemas ---
+    KubernetesBootstrapRequest:
+      type: object
+      required:
+        - sat
+      properties:
+        sat:
+          type: string
+          description: Kubernetes Service Account Token
+          example: "eyJhbGciOiJSUzI1NiIs..."
+    
+    AWSBootstrapRequest:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: Base64 encoded, presigned AWS STS GetCallerIdentity request
+          example: "eyJhbGciOiJSUzI1NiIs..."
+    
+    AzureBootstrapRequest:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: Azure Instance Metadata Service (IMDS) token
+          example: "eyJhbGciOiJSUzI1NiIs..."
+    
+    DockerBootstrapRequest:
+      type: object
+      required:
+        - container_id
+        - runtime_token
+      properties:
+        container_id:
+          type: string
+          description: Docker container ID
+          example: "a1b2c3d4e5f6"
+        runtime_token:
+          type: string
+          description: Runtime-generated token for container identity verification
+          example: "runtime-token-abc123"
+    
+    BootstrapResponse:
+      type: object
+      properties:
+        agent_id:
+          type: string
+          example: "agent-bootstrapped-1234"
+        private_key_b64:
+          type: string
+          format: base64
+          description: Base64 encoded private key (returned only once)
+          example: "MC4CAQAwBQYDK2VwBCIEIA..."
+        public_key_b64:
+          type: string
+          format: base64
+          description: Base64 encoded public key
+          example: "MCowBQYDK2VwAyEA..."
+    
+    BootstrapError:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "token_validation_failed"
+        message:
+          type: string
+          example: "Token validation failed"
+        error_code:
+          type: string
+          example: "BOOTSTRAP_001"
+        platform:
+          type: string
+          example: "kubernetes"
+        correlation_id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+    
+    # --- Vault & Credential Schemas ---
+    SecretStoreRequest:
+      type: object
+      required:
+        - name
+        - value
+      properties:
+        name:
+          type: string
+          example: "openai-api-key"
+        value:
+          type: string
+          example: "sk-..."
+        secret_metadata:
+          type: object
+          description: Additional metadata for the secret
+          additionalProperties: true
+          example:
+            target_base_url: "https://api.openai.com"
+            description: "OpenAI API key for production"
+            labels:
+              env: prod
+    
+    SecretStoreResponse:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "openai-api-key"
+        message:
+          type: string
+          example: "Secret stored successfully"
+    
+    CredentialIssueRequest:
+      type: object
+      required:
+        - agent_id
+        - ephemeral_public_key
+        - signature
+        - ttl
+      properties:
+        agent_id:
+          type: string
+          example: "agent-ebd9cd4a-1234"
+        ephemeral_public_key:
+          type: string
+          format: base64
+          description: Base64-encoded ephemeral Ed25519 public key (32 bytes)
+          example: "AAAAC3NzaC1lZDI1NTE5AAAAIEPH..."
+        signature:
+          type: string
+          format: base64
+          description: Base64-encoded signature (64 bytes)
+          example: "MEUCIQCxxx..."
+        ttl:
+          type: integer
+          minimum: 1
+          description: Time-to-live in seconds
+          example: 3600
+        scope:
+          type: string
+          example: "read:secrets:prod/app1"
+        origin_context:
+          type: object
+          description: Optional context about the request origin
+          additionalProperties: true
+          example:
+            hostname: "agent-host-1"
+            ip: "192.168.1.100"
+    
+    CredentialIssueResponse:
+      type: object
+      properties:
+        credential_id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        agent_id:
+          type: string
+          example: "agent-ebd9cd4a-1234"
+        ephemeral_public_key:
+          type: string
+          format: base64
+          example: "AAAAC3NzaC1lZDI1NTE5AAAAIEPH..."
+        issued_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          example: "active"
+        scope:
+          type: string
+          example: "read:secrets:prod/app1"
+        origin_context:
+          type: object
+          additionalProperties: true
+          example:
+            hostname: "agent-host-1"
+            ip: "192.168.1.100"
+        secret_value:
+          type: string
+          nullable: true
+          description: The secret value if this credential was issued for secret access
+    
+    CredentialRevokeResponse:
+      type: object
+      properties:
+        credential_id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        status:
+          type: string
+          example: "revoked"
+          enum: [revoked, already_revoked, revocation_failed]
+    VerificationResponse:
+      type: object
+      properties:
+        credential_id:
+          type: string
+        status:
+          type: string
+          example: "valid"
+        is_valid:
+          type: boolean
+    
+    # --- Policy Schemas ---
+    Policy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+          example: "agent-ebd9cd4a-1234"
+        effect:
+          type: string
+          example: "allow"
+          enum: [allow, deny]
+        actions:
+          type: array
+          items:
+            type: string
+          example: ["read", "write"]
+        resources:
+          type: array
+          items:
+            type: string
+          example: ["openai-api", "secrets:prod/*"]
+        conditions:
+          type: object
+          additionalProperties: true
+          description: Optional conditions for policy evaluation
+        created_at:
+          type: string
+          format: date-time
+    PolicyCreate:
+      type: object
+      required:
+        - name
+        - agent_id
+        - actions
+        - resources
+      properties:
+        name:
+          type: string
+        agent_id:
+          type: string
+        effect:
+          type: string
+          enum: [allow, deny]
+          default: allow
+        actions:
+          type: array
+          items:
+            type: string
+        resources:
+          type: array
+          items:
+            type: string
+        updated_at:
+          type: string
+          format: date-time
+    
+    AttestationPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        platform:
+          type: string
+          example: "kubernetes"
+          enum: [kubernetes, aws, azure, docker]
+        selector:
+          type: object
+          description: Platform-specific selector criteria
+          additionalProperties: true
+          example:
+            namespace: "production"
+            service_account: "ai-agents"
+        effect:
+          type: string
+          example: "allow"
+          enum: [allow, deny]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    
+    # --- Error Schemas ---
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Error message
+          example: "Agent not found"
+        error_code:
+          type: string
+          description: Machine-readable error code
+          example: "AGENT_NOT_FOUND"
+        correlation_id:
+          type: string
+          format: uuid
+          description: Unique ID for tracking this error
+          example: "123e4567-e89b-12d3-a456-426614174000"
+
+  responses:
+    BadRequest:
+      description: Bad Request - Invalid input parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "Invalid input parameters"
+            error_code: "BAD_REQUEST"
+
+    Unauthorized:
+      description: Unauthorized - Invalid or missing authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "Could not validate credentials"
+            error_code: "UNAUTHORIZED"
+
+    NotFound:
+      description: Not Found - Requested resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "Resource not found"
+            error_code: "NOT_FOUND"
+
+    InternalServerError:
+      description: Internal Server Error - Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "Internal server error"
+            error_code: "INTERNAL_ERROR"
+
+tags:
+  - name: Control Plane - Health
+    description: Health check and status endpoints for the Control Plane service
+  - name: Agents
+    description: Agent identity management and registration
+  - name: Authentication
+    description: Agent authentication, JWT tokens, and delegation
+  - name: Bootstrap
+    description: Platform-based agent identity bootstrapping (K8s, AWS, Azure, Docker)
+  - name: Vault
+    description: Secret storage and ephemeral credential management
+  - name: Policies
+    description: Access control and attestation policy management
+  - name: Internal
+    description: Internal service-to-service communication endpoints
+  - name: Gateway - Health
+    description: Health check and status endpoints for the Gateway service
+  - name: Gateway - Monitoring
+    description: Metrics and observability endpoints
+  - name: Gateway - Configuration
+    description: Gateway configuration and settings
+  - name: Gateway - Proxy
+    description: Main proxy endpoints for routing agent requests to external services
+
+externalDocs:
+  description: DeepSecure Documentation
+  url: https://github.com/DeepTrail/deepsecure/tree/main/docs 
