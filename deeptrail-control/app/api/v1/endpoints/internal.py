@@ -1,10 +1,11 @@
 """Endpoints for internal, service-to-service communication."""
 
+import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Security
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Any
 from sqlalchemy.orm import Session
 
 from app import crud
@@ -27,7 +28,8 @@ async def verify_internal_api_key(api_key: str = Security(api_key_header)):
     return api_key
 
 class SecretShareResponse(BaseModel):
-    share_1: str
+    share_1: Any  # Can be list [index, hex_string] or string
+    prime_mod: Optional[str] = None  # Prime modulus as hex string for Shamir reassembly
     target_base_url: Optional[str] = None
 
 @router.get("/secrets/{secret_name}/share", response_model=SecretShareResponse)
@@ -39,17 +41,36 @@ def get_secret_share(
     """
     Retrieves the control plane's share of a secret and its target_base_url.
     This is an internal-only endpoint for the gateway.
+    
+    Returns:
+        share_1: The control plane's share of the secret [index, hex_string]
+        prime_mod: The prime modulus for Shamir secret recovery (hex string)
+        target_base_url: The target URL for this secret's API
     """
     logger.info(f"Gateway request for share of secret: {secret_name}")
-    secret = crud.secret.get_by_name(db, name=secret_name)
+    secret = crud.secret.get_secret_by_name(db, name=secret_name)
     if not secret:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Secret not found in control plane."
         )
     
+    # Parse share_1 from JSON string to list
+    try:
+        share_1_data = json.loads(secret.share_1) if isinstance(secret.share_1, str) else secret.share_1
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse share_1 for secret '{secret_name}'")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid share data in control plane."
+        )
+    
+    # Get prime_mod from secret_metadata
+    prime_mod = None
     target_url = None
-    if secret.metadata and "target_base_url" in secret.metadata:
-        target_url = secret.metadata["target_base_url"]
+    if secret.secret_metadata:
+        prime_mod = secret.secret_metadata.get("_prime_mod")
+        target_url = secret.secret_metadata.get("target_base_url")
 
-    return SecretShareResponse(share_1=secret.share_1, target_base_url=target_url) 
+    logger.debug(f"Returning share_1 and prime_mod for secret '{secret_name}'")
+    return SecretShareResponse(share_1=share_1_data, prime_mod=prime_mod, target_base_url=target_url) 

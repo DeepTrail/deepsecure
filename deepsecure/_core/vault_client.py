@@ -710,6 +710,27 @@ class VaultClient(base_client.BaseClient):
         # All checks passed
         return True
 
+    def get_secret_admin(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves a secret's metadata by name (admin operation).
+        
+        This is an administrative method that returns only secret metadata,
+        not the actual value. For value retrieval, use the CLI with --reveal
+        or the main client's get_secret_direct() method.
+        
+        Args:
+            name: The name of the secret to retrieve.
+            
+        Returns:
+            A dictionary with secret metadata, or None if not found.
+        """
+        try:
+            # Use the parent client's get_secret_direct method
+            return self._client.get_secret_direct(name, include_value=False)
+        except Exception:
+            return None
+
+
 # The VaultClient is no longer a self-contained singleton.
 # It will be instantiated and managed by the high-level DeepSecure client,
 # which will provide it with a fully configured BaseClient.
