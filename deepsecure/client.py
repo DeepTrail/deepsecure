@@ -26,7 +26,9 @@ from .resources.agent import Agent
 from .exceptions import DeepSecureClientError
 from .types import Secret as SecretResourceType
 from ._core.policy_client import PolicyClient
+from .integrations.gateway import GatewayClient
 from .integrations.openai import OpenAIIntegration
+from .integrations.anthropic import AnthropicIntegration
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +62,15 @@ class Client(BaseClient):
         # Initialize vault client for secret management
         self.vault = VaultClient(self)
         
+        # Initialize generic gateway client for model-agnostic API proxying
+        self.gateway = GatewayClient(self)
+        
         # Initialize OpenAI integration for gateway-proxied OpenAI calls
+        # Uses the gateway client underneath for consistent behavior
         self.openai = OpenAIIntegration(self)
+        
+        # Initialize Anthropic integration for gateway-proxied Claude calls
+        self.anthropic = AnthropicIntegration(self)
 
     def agent(self, name: str, auto_create: bool = True) -> Agent:
         """

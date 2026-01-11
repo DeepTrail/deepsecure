@@ -1,58 +1,158 @@
-from typing import Any, Dict, Optional
-import requests
-from .._core.base_client import BaseClient
+"""
+OpenAI integration for DeepSecure.
+
+This module provides convenience methods for interacting with the OpenAI API
+through the DeepSecure Gateway. It uses the generic GatewayClient underneath.
+"""
+
+from typing import Any, Dict, List, Optional
+import httpx
+
 
 class OpenAIIntegration:
     """
-    Helper for interacting with OpenAI via the DeepSecure Gateway.
+    Convenience wrapper for OpenAI API calls through the DeepSecure Gateway.
+    
+    This integration provides high-level methods for common OpenAI operations
+    while the underlying GatewayClient handles authentication, policy enforcement,
+    and secret injection.
+    
+    Example usage:
+        # List models
+        resp = client.openai.list_models(agent_id=agent.id)
+        
+        # Chat completion
+        resp = client.openai.chat_completion(
+            messages=[{"role": "user", "content": "Hello!"}],
+            model="gpt-4"
+        )
     """
-    def __init__(self, client: BaseClient):
+    
+    TARGET_BASE_URL = "https://api.openai.com"
+    DEFAULT_SECRET = "openai-api-key"
+    
+    def __init__(self, client: 'Client'):
+        """
+        Initialize the OpenAI integration.
+        
+        Args:
+            client: The main DeepSecure Client instance
+        """
         self._client = client
-
-    def list_models(self, agent_id: str) -> Any:
+    
+    def list_models(self, agent_id: Optional[str] = None) -> httpx.Response:
         """
-        Lists OpenAI models via the gateway.
+        List available OpenAI models.
         
-        This effectively calls GET /v1/models on OpenAI, 
-        but routed through the DeepSecure Gateway which injects the API key.
+        Args:
+            agent_id: Agent making the request. Uses current session if None.
+            
+        Returns:
+            httpx.Response containing the list of models
+            
+        Example:
+            resp = client.openai.list_models()
+            models = resp.json()["data"]
+            for m in models:
+                print(m["id"])
         """
-        # We use the 'get_secret' pattern where the gateway fetches the secret
-        # and forwards the request.
-        # Ideally, this should be a more generic 'proxy_request' method on the client,
-        # but 'get_secret' currently implements the gateway proxy logic.
-        # We might need to refactor Client.get_secret to be more generic or use it here.
+        return self._client.gateway.get(
+            "/v1/models",
+            self.TARGET_BASE_URL,
+            agent_id=agent_id,
+            secret_name=self.DEFAULT_SECRET
+        )
+    
+    def chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "gpt-4",
+        agent_id: Optional[str] = None,
+        **kwargs
+    ) -> httpx.Response:
+        """
+        Create a chat completion.
         
-        # Assuming Client has a method to proxy requests. 
-        # Looking at Client.get_secret, it does exactly this:
-        # calls /proxy/{path} with X-Deeptrail-Secret-Name header.
-        
-        # However, OpenAIIntegration doesn't have access to 'get_secret' if passed BaseClient.
-        # It needs 'Client' or we need to duplicate the proxy logic or move it to BaseClient.
-        # For now, let's assume we can call a method on the parent client or replicate the request.
-        
-        # Let's look at how Client.get_secret is implemented:
-        # headers = {
-        #     "X-Deeptrail-Secret-Name": secret_name,
-        #     "X-Target-Base-URL": target_base_url 
-        # }
-        # response = self._authenticated_request("GET", f"/proxy/{path}", ...)
-        
-        secret_name = "openai-api-key"
-        target_base_url = "https://api.openai.com"
-        path = "v1/models"
-        
-        headers = {
-            "X-Deeptrail-Secret-Name": secret_name,
-            "X-Target-Base-URL": target_base_url
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+            model: Model to use (default: "gpt-4")
+            agent_id: Agent making the request. Uses current session if None.
+            **kwargs: Additional parameters passed to the API (temperature, max_tokens, etc.)
+            
+        Returns:
+            httpx.Response containing the completion
+            
+        Example:
+            resp = client.openai.chat_completion(
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": "Hello!"}
+                ],
+                model="gpt-4",
+                temperature=0.7
+            )
+            print(resp.json()["choices"][0]["message"]["content"])
+        """
+        payload = {
+            "model": model,
+            "messages": messages,
+            **kwargs
         }
         
-        # We need to use _authenticated_request from the client
-        response = self._client._authenticated_request(
-            "GET",
-            f"/proxy/{path}",
+        return self._client.gateway.post(
+            "/v1/chat/completions",
+            self.TARGET_BASE_URL,
             agent_id=agent_id,
-            headers=headers,
-            base_url_override=self._client._gateway_url 
+            secret_name=self.DEFAULT_SECRET,
+            json=payload
         )
+    
+    def create_embedding(
+        self,
+        input: str,
+        model: str = "text-embedding-3-small",
+        agent_id: Optional[str] = None,
+        **kwargs
+    ) -> httpx.Response:
+        """
+        Create an embedding for the given input.
         
-        return response
+        Args:
+            input: Text to embed
+            model: Embedding model to use
+            agent_id: Agent making the request. Uses current session if None.
+            **kwargs: Additional parameters
+            
+        Returns:
+            httpx.Response containing the embedding
+        """
+        payload = {
+            "model": model,
+            "input": input,
+            **kwargs
+        }
+        
+        return self._client.gateway.post(
+            "/v1/embeddings",
+            self.TARGET_BASE_URL,
+            agent_id=agent_id,
+            secret_name=self.DEFAULT_SECRET,
+            json=payload
+        )
+    
+    def list_files(self, agent_id: Optional[str] = None) -> httpx.Response:
+        """
+        List files uploaded to OpenAI.
+        
+        Args:
+            agent_id: Agent making the request. Uses current session if None.
+            
+        Returns:
+            httpx.Response containing the list of files
+        """
+        return self._client.gateway.get(
+            "/v1/files",
+            self.TARGET_BASE_URL,
+            agent_id=agent_id,
+            secret_name=self.DEFAULT_SECRET
+        )
