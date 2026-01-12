@@ -13,11 +13,15 @@ Test Coverage:
 - Error handling and edge cases
 - Integration with JWT system
 - Performance and security properties
+
+NOTE: Tests that create Client instances require backend services.
 """
 
 import pytest
+import os
 import time
 import uuid
+import httpx
 from unittest.mock import Mock, patch, MagicMock
 from typing import Dict, Any, List, Optional
 
@@ -30,11 +34,27 @@ from deepsecure._core.delegation import (
 from deepsecure.exceptions import DeepSecureClientError
 
 
+def backend_is_running() -> bool:
+    """Check if backend services are running."""
+    try:
+        httpx.get("http://localhost:8000/health", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
 class TestSDKDelegationMethods:
     """Test the main SDK delegation methods."""
     
     def setup_method(self):
         """Set up test environment."""
+        # Set env vars for Client initialization
+        os.environ.setdefault("DEEPSECURE_DEEPTRAIL_CONTROL_URL", "http://localhost:8000")
+        os.environ.setdefault("DEEPSECURE_DEEPTRAIL_GATEWAY_URL", "http://localhost:8002")
+        
+        if not backend_is_running():
+            pytest.skip("Backend services not running")
+        
         self.client = Client(silent_mode=True)
         
         # Mock the base client methods to avoid actual HTTP calls
@@ -313,6 +333,12 @@ class TestDelegationChainScenarios:
     
     def setup_method(self):
         """Set up test environment."""
+        os.environ.setdefault("DEEPSECURE_DEEPTRAIL_CONTROL_URL", "http://localhost:8000")
+        os.environ.setdefault("DEEPSECURE_DEEPTRAIL_GATEWAY_URL", "http://localhost:8002")
+        
+        if not backend_is_running():
+            pytest.skip("Backend services not running")
+        
         self.client = Client(silent_mode=True)
         self.client._request = Mock()
         self.client._authenticated_request = Mock()
@@ -416,6 +442,12 @@ class TestDelegationIntegration:
     
     def setup_method(self):
         """Set up test environment."""
+        os.environ.setdefault("DEEPSECURE_DEEPTRAIL_CONTROL_URL", "http://localhost:8000")
+        os.environ.setdefault("DEEPSECURE_DEEPTRAIL_GATEWAY_URL", "http://localhost:8002")
+        
+        if not backend_is_running():
+            pytest.skip("Backend services not running")
+        
         self.client = Client(silent_mode=True)
         self.client._request = Mock()
         self.client._authenticated_request = Mock()
@@ -452,7 +484,7 @@ class TestDelegationIntegration:
             'action': 'read:data'
         }
         
-        is_valid, _, _ = delegation_manager.verify_macaroon(reconstructed_macaroon, context)
+        is_valid, _ = delegation_manager.verify_macaroon(reconstructed_macaroon, context)
         assert is_valid is True
     
     def test_delegation_with_existing_secrets(self):
@@ -488,6 +520,13 @@ def test_phase4_task_4_2_sdk_delegation_summary():
     This test validates that all delegation functionality is working correctly
     and demonstrates the complete delegation system capabilities.
     """
+    # Set env vars for Client initialization
+    os.environ.setdefault("DEEPSECURE_DEEPTRAIL_CONTROL_URL", "http://localhost:8000")
+    os.environ.setdefault("DEEPSECURE_DEEPTRAIL_GATEWAY_URL", "http://localhost:8002")
+    
+    if not backend_is_running():
+        pytest.skip("Backend services not running")
+    
     print("\n" + "="*80)
     print("PHASE 4 TASK 4.2: SDK DELEGATION METHODS SUMMARY")
     print("="*80)

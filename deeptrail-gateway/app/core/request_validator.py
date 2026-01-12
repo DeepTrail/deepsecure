@@ -386,11 +386,15 @@ class RequestValidator:
         filtered_headers = {}
         
         # Headers to remove from responses
+        # NOTE: content-encoding is blocked because httpx auto-decompresses responses,
+        # so forwarding this header would cause the client to try to decompress again
         blocked_response_headers = {
             'server',  # Hide server information
             'x-powered-by',  # Hide technology stack
             'x-aspnet-version',  # Hide framework version
             'x-aspnetmvc-version',  # Hide MVC version
+            'content-encoding',  # Prevent double decompression (httpx auto-decompresses)
+            'transfer-encoding',  # Let the gateway handle chunked encoding
         }
         
         for name, value in headers.items():

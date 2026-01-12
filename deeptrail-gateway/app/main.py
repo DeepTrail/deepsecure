@@ -32,12 +32,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from pydantic import BaseModel
 
 from .proxy import proxy_handler
 from .core.proxy_config import config, get_project_version
 from .core.http_client import close_http_client
 from .core.request_validator import ValidationError
 from .core.request_logger import LoggingConfig, configure_request_logging
+from .core.share_storage import ShareStorageManager
 
 # For Future - Enterprise Grade: Advanced middleware imports
 # from .middleware.logging import setup_logging_middleware, get_logging_stats
@@ -356,6 +358,113 @@ async def get_logging_config():
 async def get_active_requests():
     """For Future - Enterprise Grade: Get active request information."""
     return {"message": "For Future - Enterprise Grade"}
+
+
+# Internal endpoint models for share storage
+class InternalShareIn(BaseModel):
+    secret_name: str
+    share_value: Any  # Can be string or list [index, hex_string]
+    prime_mod: str | None = None  # Prime modulus as hex string for Shamir reassembly
+    metadata: Dict[str, Any] | None = None
+
+
+# Internal endpoint: receive share_2 from control plane
+@app.post("/internal/shares", status_code=201, include_in_schema=False)
+async def receive_share(request: Request, body: InternalShareIn):
+    """
+    Receives a secret share from the control plane and stores it in Redis.
+    This endpoint is for internal use only and requires API key authentication.
+    """
+    # Validate internal API token
+    token = request.headers.get("X-Internal-API-Token")
+    expected = getattr(config, "internal_api_token", None)
+    if not token or not expected or token != expected:
+        raise HTTPException(status_code=401, detail="Invalid or missing internal API key")
+
+    try:
+        # Initialize share storage manager
+        redis_url = getattr(config, 'redis_url', 'redis://redis:6379')
+        encryption_key = expected  # Use internal token as encryption key for dev
+        storage = ShareStorageManager(redis_url=redis_url, encryption_key=encryption_key)
+
+        ok = await storage.store_share(
+            secret_name=body.secret_name,
+            share_2=body.share_value,
+            prime_mod_hex=body.prime_mod,  # Pass prime_mod for secret reassembly
+            metadata=body.metadata or {}
+        )
+        if not ok:
+            raise HTTPException(status_code=502, detail="Failed to persist share")
+
+        logger.info(f"Successfully stored share_2 for secret '{body.secret_name}'")
+        return {"status": "stored", "secret_name": body.secret_name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error storing internal share: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal error storing share")
+
+
+# Internal endpoint: retrieve share_2 for secret reassembly
+@app.get("/internal/shares/{secret_name}", status_code=200, include_in_schema=False)
+async def get_share(request: Request, secret_name: str):
+    """
+    Retrieves a secret share from Redis for the gateway's secret injection.
+    This endpoint is for internal use only and requires API key authentication.
+    """
+    # Validate internal API token
+    token = request.headers.get("X-Internal-API-Token")
+    expected = getattr(config, "internal_api_token", None)
+    if not token or not expected or token != expected:
+        raise HTTPException(status_code=401, detail="Invalid or missing internal API key")
+
+    try:
+        redis_url = getattr(config, 'redis_url', 'redis://redis:6379')
+        encryption_key = expected
+        storage = ShareStorageManager(redis_url=redis_url, encryption_key=encryption_key)
+
+        share_data = await storage.retrieve_share(secret_name=secret_name)
+        if share_data is None:
+            raise HTTPException(status_code=404, detail=f"Share for '{secret_name}' not found")
+
+        logger.info(f"Successfully retrieved share_2 for secret '{secret_name}'")
+        return {"secret_name": secret_name, "share_2": share_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving internal share: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal error retrieving share")
+
+
+# Internal endpoint: delete share_2 from Redis
+@app.delete("/internal/shares/{secret_name}", status_code=200, include_in_schema=False)
+async def delete_share(request: Request, secret_name: str):
+    """
+    Deletes a secret share from Redis.
+    This endpoint is for internal use only and requires API key authentication.
+    """
+    # Validate internal API token
+    token = request.headers.get("X-Internal-API-Token")
+    expected = getattr(config, "internal_api_token", None)
+    if not token or not expected or token != expected:
+        raise HTTPException(status_code=401, detail="Invalid or missing internal API key")
+
+    try:
+        redis_url = getattr(config, 'redis_url', 'redis://redis:6379')
+        encryption_key = expected
+        storage = ShareStorageManager(redis_url=redis_url, encryption_key=encryption_key)
+
+        deleted = await storage.delete_share(secret_name=secret_name)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Share for '{secret_name}' not found")
+
+        logger.info(f"Successfully deleted share_2 for secret '{secret_name}'")
+        return {"status": "deleted", "secret_name": secret_name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting internal share: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal error deleting share")
 
 
 # Main proxy routes

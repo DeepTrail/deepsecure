@@ -21,12 +21,78 @@ from ._core.identity_provider import (
     KubernetesIdentityProvider,
     AwsIdentityProvider,
 )
-from ._core.config import get_effective_deeptrail_control_url, get_effective_deeptrail_gateway_url
+from ._core.config import get_effective_deeptrail_control_url, get_effective_deeptrail_gateway_url, get_effective_api_token
 from .resources.agent import Agent
 from .exceptions import DeepSecureClientError
 from .types import Secret as SecretResourceType
+from ._core.policy_client import PolicyClient
+from .integrations.gateway import GatewayClient
+from .integrations.openai import OpenAIIntegration
+from .integrations.anthropic import AnthropicIntegration
+from . import __version__
 
 logger = logging.getLogger(__name__)
+
+
+class CredentialsNamespace:
+    """
+    Namespace for credential operations (issue, verify, revoke).
+    
+    Provides a clean API surface for credential management operations,
+    delegating to the appropriate underlying client methods.
+    """
+    
+    def __init__(self, client: 'Client'):
+        self._client = client
+    
+    def issue(self, agent_id: str, scope: str, ttl: str = "5m", **kwargs):
+        """
+        Issues a new credential for an agent.
+        
+        Args:
+            agent_id: The agent to issue the credential for.
+            scope: The access scope for the credential.
+            ttl: Time-to-live (e.g., "5m", "1h", "7d").
+            
+        Returns:
+            CredentialResponse with credential details.
+        """
+        # Call vault.issue (the alias), not issue_credential directly
+        # This allows tests to mock vault.issue cleanly
+        return self._client.vault.issue(
+            scope=scope,
+            ttl=ttl,
+            agent_id=agent_id,
+            **kwargs
+        )
+    
+    def verify(self, credential_id: str, **kwargs):
+        """
+        Verifies a credential's validity.
+        
+        Args:
+            credential_id: The ID of the credential to verify.
+            
+        Returns:
+            Verification result with status.
+        """
+        # Call vault.verify to allow tests to mock cleanly
+        return self._client.vault.verify(credential_id, **kwargs)
+    
+    def revoke(self, credential_id: str, **kwargs):
+        """
+        Revokes a credential.
+        
+        Args:
+            credential_id: The ID of the credential to revoke.
+            
+        Returns:
+            Revocation result with status.
+        """
+        # Call vault.revoke (the alias), not revoke_credential directly
+        # This allows tests to mock vault.revoke cleanly
+        return self._client.vault.revoke(credential_id, **kwargs)
+
 
 class Client(BaseClient):
     """
@@ -51,6 +117,67 @@ class Client(BaseClient):
         self.agents = AgentClient(api_url=base_url, silent_mode=silent_mode)
         # Share authentication state with the AgentClient
         self.agents._parent_client = self
+        
+        # Initialize policy client for policy management
+        self.policy = PolicyClient(api_url=base_url, silent_mode=silent_mode)
+        
+        # Initialize vault client for secret management
+        self.vault = VaultClient(self)
+        
+        # Initialize generic gateway client for model-agnostic API proxying
+        self.gateway = GatewayClient(self)
+        
+        # Initialize OpenAI integration for gateway-proxied OpenAI calls
+        # Uses the gateway client underneath for consistent behavior
+        self.openai = OpenAIIntegration(self)
+        
+        # Initialize Anthropic integration for gateway-proxied Claude calls
+        self.anthropic = AnthropicIntegration(self)
+        
+        # Initialize credentials namespace for issue/verify/revoke operations
+        self._credentials_namespace = CredentialsNamespace(self)
+        
+        # Store control URL for external access
+        self._control_url = base_url
+    
+    @property
+    def control_url(self) -> str:
+        """The URL of the DeepSecure Control Plane."""
+        return self._control_url
+    
+    @property
+    def version(self) -> str:
+        """The version of the DeepSecure SDK."""
+        return __version__
+    
+    @property
+    def identity_manager(self):
+        """
+        Provides access to the identity manager for key generation and storage.
+        
+        This is a public accessor for the internal identity manager, enabling
+        operations like generating Ed25519 keypairs and storing keys.
+        """
+        return self._identity_manager
+    
+    @property
+    def credentials(self):
+        """
+        Provides access to credentials operations.
+        
+        Returns the vault client which handles credential issue/verify/revoke.
+        This is a convenience namespace for credential operations.
+        """
+        return self._credentials_namespace
+    
+    def get_agent(self, name: str, auto_create: bool = True) -> Agent:
+        """
+        Get a handle for a specific agent by name.
+        If auto_create is True, the agent will be created if it doesn't exist.
+        
+        This is an alias for agent() to match common SDK patterns.
+        """
+        return self.agent(name, auto_create=auto_create)
 
     def agent(self, name: str, auto_create: bool = True) -> Agent:
         """
@@ -59,6 +186,47 @@ class Client(BaseClient):
         """
         # This part of the logic remains high-level, Agent class will use the client
         return self.agents.get_by_name(name, auto_create=auto_create)
+
+    # --- Authentication Methods ---
+
+    def authenticate(self, agent_id: str) -> None:
+        """
+        Authenticates the agent and stores the session token.
+        
+        This performs the full challenge-response authentication flow using
+        the agent's Ed25519 key pair stored in the OS keyring.
+        
+        Args:
+            agent_id: The ID of the agent to authenticate as.
+            
+        Raises:
+            AuthenticationError: If the agent identity cannot be found or auth fails.
+        """
+        # Get the identity for this agent from the identity manager
+        identity = self._identity_manager.get_identity(agent_id)
+        
+        if not identity:
+            raise AuthenticationError(
+                f"Could not find identity for agent '{agent_id}'. "
+                f"Ensure the agent has been created and its keys are accessible."
+            )
+        
+        # Perform the challenge-response authentication flow
+        self.get_access_token(agent_id)
+        
+        # Store the agent_id for future reference
+        self._current_agent_id = agent_id
+
+    def login(self, agent_id: str) -> None:
+        """
+        Authenticates the agent and stores the session token.
+        
+        This is an alias for authenticate() for backward compatibility.
+        
+        Args:
+            agent_id: The ID of the agent to authenticate as.
+        """
+        return self.authenticate(agent_id)
 
     # --- Raw Backend Methods ---
 
@@ -166,10 +334,16 @@ class Client(BaseClient):
         
         metadata["target_base_url"] = target_base_url
         
-        return self._request(
+        headers = {}
+        # Use configured token or fall back to the dev default to match backend
+        api_token = get_effective_api_token() or "insecure_default_api_token_for_dev"
+        headers["Authorization"] = f"Bearer {api_token}"
+
+        return self._unauthenticated_request(
             "POST",
-            "/api/v1/vault/secrets",
-            json={"name": name, "value": value, "metadata": metadata}
+            "/api/v1/vault/store",
+            json={"name": name, "value": value, "secret_metadata": metadata},
+            headers=headers
         ).json()
 
     def delete_secret(self, agent_id: str, name: str, delegation_token: Optional[str] = None) -> None:
@@ -184,29 +358,127 @@ class Client(BaseClient):
         response = self._authenticated_request("GET", path, agent_id=agent_id, delegation_token=delegation_token)
         return response.json().get("secrets", [])
 
-    def get_secret_direct(self, name: str) -> Dict[str, Any]:
+    def get_secret_direct(self, name: str, include_value: bool = True) -> Dict[str, Any]:
         """
         Retrieves a secret directly from the backend vault without requiring an agent.
         
         This method is intended for CLI/administrative use and bypasses the ephemeral
         credential system. For programmatic agent access with gateway proxy, use get_secret().
         
+        The secret is reassembled from split shares stored across the control plane
+        and gateway. The complete value only exists briefly in memory during this call.
+        
         Args:
             name: The name of the secret to retrieve.
+            include_value: If True (default), returns the reassembled secret value.
+                          If False, returns only metadata (name, metadata, created_at).
             
         Returns:
-            A dictionary containing the secret data (name, value, created_at).
+            A dictionary containing the secret data:
+            - name: The secret name
+            - value: The reassembled secret value (if include_value=True)
+            - metadata: Associated metadata (target_base_url, labels, etc.)
+            - created_at: When the secret was created
             
         Raises:
             DeepSecureClientError: If the secret is not found or retrieval fails.
         """
-        logger.info(f"Retrieving secret directly with name: {name}")
+        logger.info(f"Retrieving secret directly with name: {name} (include_value={include_value})")
         try:
-            response = self._request("GET", f"/api/v1/vault/secrets/{name}")
+            headers = {}
+            # Use configured token or fall back to the dev default to match backend
+            api_token = get_effective_api_token() or "insecure_default_api_token_for_dev"
+            headers["Authorization"] = f"Bearer {api_token}"
+            
+            # Choose endpoint based on whether we need the actual value
+            if include_value:
+                # Call the /value endpoint which reassembles the secret from shares
+                endpoint = f"/api/v1/vault/secrets/{name}/value"
+            else:
+                # Call the metadata-only endpoint
+                endpoint = f"/api/v1/vault/secrets/{name}"
+            
+            response = self._unauthenticated_request("GET", endpoint, headers=headers)
             return response.json()
         except Exception as e:
-            logger.error(f"Failed to retrieve secret {name}: {e}")
+            # Use debug level for 404 (not found) to avoid noisy logs for expected case
+            if "404" in str(e):
+                logger.debug(f"Secret {name} not found: {e}")
+            else:
+                logger.error(f"Failed to retrieve secret {name}: {e}")
             raise DeepSecureClientError(f"Failed to retrieve secret '{name}': {e}") from e
+
+    def delete_secret_direct(self, name: str) -> Dict[str, Any]:
+        """
+        Deletes a secret from the vault.
+        
+        This performs a coordinated deletion across both components:
+        - share_1 from Control Plane's PostgreSQL
+        - share_2 from Gateway's Redis
+        
+        The Control Plane orchestrates the deletion, first removing the
+        Gateway share, then removing the local share.
+        
+        Args:
+            name: The name of the secret to delete.
+            
+        Returns:
+            A dictionary containing:
+            - status: "deleted"
+            - name: The secret name
+            - gateway_share_deleted: True if Gateway share was deleted,
+                                     False if it was already expired
+            
+        Raises:
+            DeepSecureClientError: If the secret is not found or deletion fails.
+        """
+        logger.info(f"Deleting secret: {name}")
+        try:
+            headers = {}
+            # Use configured token or fall back to the dev default to match backend
+            api_token = get_effective_api_token() or "insecure_default_api_token_for_dev"
+            headers["Authorization"] = f"Bearer {api_token}"
+            
+            response = self._unauthenticated_request(
+                "DELETE", 
+                f"/api/v1/vault/secrets/{name}", 
+                headers=headers
+            )
+            return response.json()
+        except Exception as e:
+            # Use debug level for 404 (not found) to avoid noisy logs for expected case
+            if "404" in str(e):
+                logger.debug(f"Secret {name} not found for deletion: {e}")
+            else:
+                logger.error(f"Failed to delete secret {name}: {e}")
+            raise DeepSecureClientError(f"Failed to delete secret '{name}': {e}") from e
+
+    def list_secrets_direct(self) -> Dict[str, Any]:
+        """
+        Lists all secrets in the vault (admin operation).
+        
+        Returns metadata only - no secret values are included for security.
+        This is intended for CLI/administrative use.
+        
+        Returns:
+            A dictionary containing:
+            - secrets: List of secret metadata (name, created_at, metadata)
+            - count: Total number of secrets
+            
+        Raises:
+            DeepSecureClientError: If the request fails.
+        """
+        logger.info("Listing secrets in vault")
+        try:
+            headers = {}
+            api_token = get_effective_api_token() or "insecure_default_api_token_for_dev"
+            headers["Authorization"] = f"Bearer {api_token}"
+            
+            response = self._unauthenticated_request("GET", "/api/v1/vault/secrets", headers=headers)
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to list secrets: {e}")
+            raise DeepSecureClientError(f"Failed to list secrets: {e}") from e
 
     def delegate_access(
         self,
@@ -568,3 +840,8 @@ class DeepSecure:
     @property
     def agent_id(self) -> Optional[str]:
         return self._agent_id
+    
+    @property
+    def identity(self) -> Optional[AgentIdentity]:
+        """The current agent identity, if one was passed directly."""
+        return self._identity

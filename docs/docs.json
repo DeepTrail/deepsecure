@@ -1,0 +1,60 @@
+{
+    "$schema": "https://mintlify.com/docs.json",
+    "theme": "mint",
+    "name": "DeepSecure SDK",
+    "colors": {
+      "primary": "#C12026",
+      "light": "#C12026",
+      "dark": "#fff"
+    },
+    "favicon": "/favicon.png",
+    "background": {
+      "color": {
+        "dark": "#0a0a0a"
+      },
+      "decoration": "gradient"
+    },
+    "navigation": {
+      "tabs": [
+        {
+          "tab": "Documentation",
+          "groups": [
+            {
+              "group": "Get Started",
+              "pages": [
+                "introduction"
+              ]
+            }
+          ]
+        },
+        {
+          "tab": "API Reference",
+          "openapi": "/openapi.yaml"
+        }
+      ]
+    },
+    "logo": {
+      "light": "/deeptrail_logo.png",
+      "dark": "/deeptrail_logo.png"
+    },
+    "navbar": {
+      "links": [
+        {
+          "label": "Support",
+          "href": "https://www.deep-secure.com/contact-us.php"
+        }
+      ],
+      "primary": {
+        "type": "button",
+        "label": "Free Trial",
+        "href": "https://www.deep-secure.com/try-it-now.php"
+      }
+    },
+    "footer": {
+      "socials": {
+        "x": "https://twitter.com/DeepSecureLtd",
+        "youtube": "https://www.youtube.com/channel/UCW8GYdMpqX2yU43C7KGPotg",
+        "linkedin": "https://www.linkedin.com/company/deep-secure-ltd/"
+      }
+    }
+  }

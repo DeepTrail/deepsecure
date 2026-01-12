@@ -24,8 +24,8 @@ TEST_KEY_MAP = {
 
 # --- Base Schemas --- #
 class AgentBase(BaseModel):
-    name: Optional[str] = Field(None, example="MyAwesomeAgent", max_length=255)
-    description: Optional[str] = Field(None, example="Agent for processing order data.")
+    name: Optional[str] = Field(None, max_length=255, json_schema_extra={"example": "MyAwesomeAgent"})
+    description: Optional[str] = Field(None, json_schema_extra={"example": "Agent for processing order data."})
 
 class AgentCreate(AgentBase):
     agent_id: Optional[str] = Field(None, description="Optional agent ID. If not provided, one will be generated.")
@@ -45,15 +45,15 @@ class AgentCreate(AgentBase):
             raise ValueError(f"Invalid base64 encoded public key: {e}")
 
 class AgentUpdate(BaseModel):
-    name: Optional[str] = Field(None, example="MyRenamedAgent", max_length=255)
-    description: Optional[str] = Field(None, example="Updated agent description.")
-    status: Optional[str] = Field(None, example="inactive", max_length=50)
+    name: Optional[str] = Field(None, max_length=255, json_schema_extra={"example": "MyRenamedAgent"})
+    description: Optional[str] = Field(None, json_schema_extra={"example": "Updated agent description."})
+    status: Optional[str] = Field(None, max_length=50, json_schema_extra={"example": "inactive"})
 
 # --- Schemas for Database Interaction (usually includes all model fields) --- #
 class AgentInDBBase(AgentBase):
-    agent_id: str = Field(example="agent_f3b4c1a9-0123-4567-89ab-cdef01234567")
+    agent_id: str = Field(json_schema_extra={"example": "agent_f3b4c1a9-0123-4567-89ab-cdef01234567"})
     public_key: bytes # Field name matches SQLAlchemy model, stores raw bytes from DB
-    status: str = Field(example="active")
+    status: str = Field(json_schema_extra={"example": "active"})
     created_at: datetime
     updated_at: datetime
     last_seen_at: Optional[datetime] = None

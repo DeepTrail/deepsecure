@@ -41,6 +41,9 @@ class RevocationResponse(BaseModel):
     credential_id: str
     message: Optional[str] = None
 
+# Alias for consistency with test expectations
+CredentialRevokeResponse = RevocationResponse
+
 class AgentKeyRotationResponse(BaseModel):
     agent_id: Optional[str] = None # Made optional
     status: Optional[str] = None # Made optional, e.g., "success", "rotation_initiated"
@@ -55,6 +58,16 @@ class VerificationResponse(CredentialBase):
     # For now, assuming 'ephemeral_public_key' (as b64 string) is part of what verify endpoint returns under this name.
     ephemeral_public_key: Optional[str] = None # Base64 encoded, usually matches the one from issue. Made Optional.
     verified_at: Optional[str] = None # Or datetime if parsed. Made Optional.
+
+
+class CredentialVerificationResponse(BaseModel):
+    """
+    Simplified credential verification response for the credentials namespace.
+    """
+    credential_id: str
+    status: str  # "valid", "invalid", "revoked", "expired"
+    is_valid: bool = True
+    message: Optional[str] = None
 
 class AgentDetailsResponse(BaseModel):
     agent_id: str

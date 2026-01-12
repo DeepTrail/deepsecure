@@ -78,6 +78,18 @@ class SecurityConfig(BaseModel):
         description="Request timeout in seconds"
     )
     
+    # Core PEP: Max connections for HTTP client pool
+    max_connections: int = Field(
+        default=100,
+        description="Maximum number of concurrent connections for the HTTP client pool"
+    )
+    
+    # Core PEP: Allowed domains (empty = all allowed)
+    allowed_domains: List[str] = Field(
+        default_factory=list,
+        description="List of allowed target domains. Empty list means all domains are allowed."
+    )
+    
     # JWT Configuration for signature validation
     jwt_secret_key: str = Field(
         default="your-secret-key-for-jwt",
@@ -141,6 +153,38 @@ class RoutingConfig(BaseModel):
     path_prefix: str = Field(
         default="/proxy",
         description="Path prefix for proxy requests"
+    )
+    
+    # Core PEP: Headers to block from being forwarded
+    blocked_headers: List[str] = Field(
+        default_factory=lambda: [
+            "x-forwarded-for",
+            "x-real-ip",
+            "x-forwarded-proto",
+            "x-forwarded-host",
+            "x-rewrite-url",
+            "x-original-url"
+        ],
+        description="Headers to block from being forwarded to upstream services"
+    )
+    
+    # Core PEP: Headers to preserve when forwarding (NOTE: accept-encoding removed to avoid decompression issues)
+    preserve_headers: List[str] = Field(
+        default_factory=lambda: [
+            "accept",
+            "accept-language",
+            "content-type",
+            "content-length",
+            "user-agent",
+            "authorization"  # Critical: Must preserve auth header for secret injection
+        ],
+        description="Headers to preserve when forwarding to upstream services"
+    )
+    
+    # Core PEP: Additional headers to add to forwarded requests
+    forwarded_headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Additional headers to add to forwarded requests"
     )
     
     # For Future - Enterprise Grade: Advanced routing
@@ -245,6 +289,17 @@ class LoggingConfig(BaseModel):
         description="Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL"
     )
     
+    # Core PEP: Headers to redact from logs
+    sanitize_headers: List[str] = Field(
+        default_factory=lambda: [
+            "authorization",
+            "x-api-key",
+            "cookie",
+            "set-cookie"
+        ],
+        description="Headers to redact from logs for security"
+    )
+    
     # For Future - Enterprise Grade: Advanced logging
     enable_structured_logging: bool = Field(
         default=False,
@@ -324,6 +379,24 @@ class ProxyConfig(BaseModel):
     control_plane_url: str = Field(
         default="http://deeptrail-control:8000",
         description="URL of the deeptrail-control service"
+    )
+    
+    # Core PEP: Internal API token for control plane <-> gateway communication
+    internal_api_token: str = Field(
+        default=os.getenv("GATEWAY_INTERNAL_API_TOKEN", "insecure_default_gateway_token_for_dev"),
+        description="Internal API token for secure inter-service communication"
+    )
+    
+    # Core PEP: API token to authenticate with control plane (for share retrieval)
+    control_plane_api_token: str = Field(
+        default=os.getenv("BACKEND_API_TOKEN", "DEFAULT_QUICKSTART_TOKEN"),
+        description="API token for authenticating gateway requests to control plane"
+    )
+    
+    # Core PEP: Redis URL for share storage
+    redis_url: str = Field(
+        default=os.getenv("REDIS_URL", "redis://redis:6379"),
+        description="Redis URL for share_2 storage"
     )
     
     # Core PEP: Essential configurations

@@ -394,5 +394,3 @@ While real-time, blocking enforcement for every UI action is likely too slow, th
 *   **Elevation of Privilege:**
     *   **Threat:** An agent with a valid token for one site uses it to perform actions on another.
     *   **Mitigation:** While not blocked in real-time, this is immediately detectable via the audit trail, which would show a scope violation. This can trigger alerts and session revocation.
-
-

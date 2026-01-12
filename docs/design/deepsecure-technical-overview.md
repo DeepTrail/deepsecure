@@ -811,4 +811,4 @@ This appendix provides detailed illustrations of how the DeepTrail security mode
 *   `delegation_chain`: `["user-id-123", "assistant-agent-abc"]`
 *   `exp`: (Timestamp for 5 minutes from now)
 
-**Why It Matters:** This model enables the principle of least privilege at a granular level. The Calendar Agent gets the minimum possible permission needed to do its job, for the minimum possible time. The User Assistant Agent never has to share its own, more powerful credential. 
+**Why It Matters:** This model enables the principle of least privilege at a granular level. The Calendar Agent gets the minimum possible permission needed to do its job, for the minimum possible time. The User Assistant Agent never has to share its own, more powerful credential.

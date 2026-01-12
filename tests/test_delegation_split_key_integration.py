@@ -20,9 +20,13 @@ Prerequisites:
 - Redis server running for split-key storage
 - DeepSecure backend services (control plane + gateway)
 - All Phase 4 components implemented (delegation + split-key)
+
+NOTE: These are integration tests that require running backend services.
+Mark with @pytest.mark.integration and skip if services not available.
 """
 
 import pytest
+import os
 import time
 import asyncio
 import concurrent.futures
@@ -45,6 +49,32 @@ from deepsecure.exceptions import DeepSecureError
 # Test framework imports
 from cryptography.fernet import Fernet
 import sslib.shamir as shamir
+
+
+# Mark all tests in this module as integration tests
+pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(scope="module", autouse=True)
+def mock_env_for_integration(request):
+    """
+    Set environment variables for integration tests.
+    Skip all tests if backend services are not available.
+    """
+    # Set required environment variables
+    os.environ.setdefault("DEEPSECURE_DEEPTRAIL_CONTROL_URL", "http://localhost:8000")
+    os.environ.setdefault("DEEPSECURE_DEEPTRAIL_GATEWAY_URL", "http://localhost:8002")
+    
+    # Check if backend services are running
+    import httpx
+    try:
+        httpx.get("http://localhost:8000/health", timeout=2)
+    except Exception:
+        pytest.skip("Backend services not running - skipping integration tests")
+    
+    yield
+    
+    # Cleanup is handled by individual test fixtures
 
 
 @dataclass
@@ -331,6 +361,7 @@ class TestPhase4EndToEndIntegration:
             ]
             
             reconstruction_data = {
+                'required_shares': 2,
                 'shares': shares_for_reconstruction,
                 'prime_mod': secret_metadata["prime_mod"]
             }
@@ -618,6 +649,7 @@ class TestPhase4PerformanceAnalysis:
                 
                 # Reconstruct secret
                 reconstruction_data = {
+                    'required_shares': 2,
                     'shares': [(shares_list[0][0], shares_list[0][1]), 
                               (shares_list[1][0], decrypted_share)],
                     'prime_mod': shares_dict.get('prime_mod')
@@ -751,6 +783,7 @@ class TestPhase4PerformanceAnalysis:
                     decrypted_share = fernet.decrypt(encrypted_data)
                     
                     reconstruction_data = {
+                        'required_shares': 2,
                         'shares': [(shares_list[0][0], shares_list[0][1]), 
                                   (shares_list[1][0], decrypted_share)],
                         'prime_mod': shares_dict.get('prime_mod')
@@ -918,6 +951,7 @@ class TestPhase4SecurityValidation:
             
             # Test reconstruction with original shares
             reconstruction_data = {
+                'required_shares': 2,
                 'shares': [(shares_list[0][0], original_share_1), 
                           (shares_list[1][0], original_share_2)],
                 'prime_mod': shares_dict.get('prime_mod')
@@ -932,6 +966,7 @@ class TestPhase4SecurityValidation:
             tampered_share_1 = bytes(tampered_share_1)
             
             reconstruction_data_tampered = {
+                'required_shares': 2,
                 'shares': [(shares_list[0][0], tampered_share_1), 
                           (shares_list[1][0], original_share_2)],
                 'prime_mod': shares_dict.get('prime_mod')
@@ -1097,6 +1132,7 @@ class TestPhase4SecurityValidation:
             try:
                 # This should fail - you can't reconstruct with insufficient shares
                 reconstruction_data = {
+                    'required_shares': 2,
                     'shares': [single_share],
                     'prime_mod': shares_dict.get('prime_mod')
                 }
@@ -1348,6 +1384,7 @@ class TestPhase4BackwardsCompatibility:
             decrypted_share_2 = fernet.decrypt(retrieved_encrypted)
             
             reconstruction_data = {
+                'required_shares': 2,
                 'shares': [
                     (migrated_secret['split_metadata']['share_indices'][0], migrated_secret['control_plane_share']),
                     (migrated_secret['split_metadata']['share_indices'][1], decrypted_share_2)

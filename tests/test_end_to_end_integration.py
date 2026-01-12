@@ -30,6 +30,10 @@ import os
 import base64
 
 
+# Mark all tests in this module as integration tests
+pytestmark = pytest.mark.integration
+
+
 def is_integration_environment_ready():
     """Check if all required services for integration tests are available."""
     try:
@@ -51,6 +55,28 @@ def is_integration_environment_ready():
         return True
     except (requests.RequestException, ConnectionError):
         return False
+
+
+# Skip the entire module if integration environment is not ready
+if not is_integration_environment_ready():
+    pytest.skip(
+        "Integration environment not ready - skipping E2E integration tests",
+        allow_module_level=True
+    )
+
+
+def has_test_jwt_signing_key() -> bool:
+    """Check if we have access to the JWT signing key for test tokens."""
+    # This would check for a properly configured test environment
+    # where we can generate valid JWT tokens
+    return os.environ.get("DEEPSECURE_JWT_SECRET_KEY") is not None
+
+
+# Marker for tests that require authenticated gateway access
+requires_gateway_auth = pytest.mark.skipif(
+    not has_test_jwt_signing_key(),
+    reason="Requires DEEPSECURE_JWT_SECRET_KEY to generate valid test JWTs"
+)
 
 
 class Phase2IntegrationTester:
@@ -250,6 +276,7 @@ class TestPhase2IntegrationEndToEnd:
         assert payload["iss"] == "deeptrail-control"
         assert payload["exp"] > int(time.time())  # Token not expired
     
+    @requires_gateway_auth
     @pytest.mark.asyncio
     async def test_gateway_proxy_basic_request(self, integration_tester):
         """Test basic request proxying through gateway."""
@@ -269,6 +296,7 @@ class TestPhase2IntegrationEndToEnd:
         assert "url" in response_data
         assert "headers" in response_data
     
+    @requires_gateway_auth
     @pytest.mark.asyncio
     async def test_gateway_proxy_post_request(self, integration_tester):
         """Test POST request proxying through gateway."""
@@ -316,6 +344,7 @@ class TestPhase2IntegrationEndToEnd:
         # If we get a 404 or gateway error, it means the proxy didn't work
         assert response.status_code in [401, 403, 429], f"Expected auth error from OpenAI, got {response.status_code}"
     
+    @requires_gateway_auth
     @pytest.mark.asyncio
     async def test_gateway_no_secret_injection_for_unknown_domain(self, integration_tester):
         """Test that gateway doesn't inject secrets for unknown domains."""
@@ -368,6 +397,7 @@ class TestPhase2IntegrationEndToEnd:
         # Should be rejected due to invalid JWT
         assert response.status_code == 401
     
+    @requires_gateway_auth
     @pytest.mark.asyncio
     async def test_end_to_end_multiple_requests(self, integration_tester):
         """Test multiple requests through the gateway to verify stability."""
@@ -393,6 +423,7 @@ class TestPhase2IntegrationEndToEnd:
             response_data = response.json()
             assert f"request={i}" in response_data["url"]
     
+    @requires_gateway_auth
     @pytest.mark.asyncio
     async def test_gateway_header_preservation(self, integration_tester):
         """Test that gateway preserves custom headers while adding auth."""
@@ -421,6 +452,7 @@ class TestPhase2IntegrationEndToEnd:
         assert headers.get("X-Custom-Header") == "test-value"
         assert "Phase2-Integration-Test/1.0" in headers.get("User-Agent", "")
     
+    @requires_gateway_auth
     @pytest.mark.asyncio
     async def test_gateway_error_handling(self, integration_tester):
         """Test gateway error handling for various failure scenarios."""
@@ -437,6 +469,7 @@ class TestPhase2IntegrationEndToEnd:
         # Should handle DNS resolution failure gracefully
         assert response.status_code in [400, 500, 502, 503, 504]
     
+    @requires_gateway_auth
     @pytest.mark.asyncio
     async def test_performance_timing(self, integration_tester):
         """Test that gateway adds minimal latency to requests."""
@@ -472,6 +505,7 @@ class TestPhase2IntegrationEndToEnd:
         print(f"Gateway overhead: {overhead:.3f}s")
 
 
+@requires_gateway_auth
 @pytest.mark.asyncio
 async def test_phase2_integration_summary():
     """Summary test that validates the complete Phase 2 integration."""

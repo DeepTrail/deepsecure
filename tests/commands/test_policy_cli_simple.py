@@ -45,8 +45,7 @@ def test_basic_azure_creation():
         
         print(f"Exit code: {result.exit_code}")
         print(f"Output: {result.stdout}")
-        if result.stderr:
-            print(f"Error: {result.stderr}")
+        # Note: stderr is not separately captured by default in typer.testing.CliRunner
         if result.exception:
             print(f"Exception: {result.exception}")
             import traceback
@@ -78,8 +77,7 @@ def test_basic_listing():
         
         print(f"Exit code: {result.exit_code}")
         print(f"Output: {result.stdout}")
-        if result.stderr:
-            print(f"Error: {result.stderr}")
+        # Note: stderr is not separately captured by default in typer.testing.CliRunner
         if result.exception:
             print(f"Exception: {result.exception}")
             import traceback

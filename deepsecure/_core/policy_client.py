@@ -1,14 +1,23 @@
 '''Client for interacting with the Policy API.'''
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from .base_client import BaseClient
 from .._core.schemas import PolicyResponse
+from .config import get_effective_api_token
 
 class PolicyClient(BaseClient):
     """
     Client for interacting with the policy management endpoints.
+    
+    This client uses API token authentication (not agent JWT) for policy
+    management operations, as policies are an administrative concern.
     """
+
+    def _get_auth_headers(self) -> Dict[str, str]:
+        """Get authorization headers using admin API token."""
+        api_token = get_effective_api_token() or "insecure_default_api_token_for_dev"
+        return {"Authorization": f"Bearer {api_token}"}
 
     def create(
         self,
@@ -31,14 +40,23 @@ class PolicyClient(BaseClient):
         Returns:
             The created policy object.
         """
+        # Strip "agent-" prefix if present, as backend expects raw UUID
+        clean_agent_id = agent_id
+        if agent_id and agent_id.startswith("agent-"):
+            clean_agent_id = agent_id[6:]  # Remove "agent-" prefix
+        
         policy_data = {
             "name": name,
-            "agent_id": agent_id,
+            "agent_id": clean_agent_id,
             "actions": actions,
             "resources": resources,
             "effect": effect,
         }
-        response = self._request("POST", "/api/v1/policies/", json=policy_data)
+        response = self._unauthenticated_request(
+            "POST", "/api/v1/policies/", 
+            json=policy_data, 
+            headers=self._get_auth_headers()
+        )
         return PolicyResponse(**response.json())
 
     def list(self) -> List[PolicyResponse]:
@@ -48,8 +66,30 @@ class PolicyClient(BaseClient):
         Returns:
             A list of policy objects.
         """
-        response = self._request("GET", "/api/v1/policies/")
+        response = self._unauthenticated_request(
+            "GET", "/api/v1/policies/", 
+            headers=self._get_auth_headers()
+        )
         return [PolicyResponse(**p) for p in response.json()]
+
+    def get_by_name(self, name: str) -> Optional[PolicyResponse]:
+        """
+        Retrieves a policy by its name.
+
+        Args:
+            name: The name of the policy to find.
+
+        Returns:
+            The matching policy object, or None if not found.
+        """
+        try:
+            all_policies = self.list()
+            for policy in all_policies:
+                if policy.name == name:
+                    return policy
+            return None
+        except Exception:
+            return None
 
     def get(self, policy_id: str) -> PolicyResponse:
         """
@@ -61,7 +101,10 @@ class PolicyClient(BaseClient):
         Returns:
             The requested policy object.
         """
-        response = self._request("GET", f"/api/v1/policies/{policy_id}")
+        response = self._unauthenticated_request(
+            "GET", f"/api/v1/policies/{policy_id}",
+            headers=self._get_auth_headers()
+        )
         return PolicyResponse(**response.json())
 
     def delete(self, policy_id: str) -> Dict[str, Any]:
@@ -74,7 +117,10 @@ class PolicyClient(BaseClient):
         Returns:
             A confirmation message.
         """
-        response = self._request("DELETE", f"/api/v1/policies/{policy_id}")
+        response = self._unauthenticated_request(
+            "DELETE", f"/api/v1/policies/{policy_id}",
+            headers=self._get_auth_headers()
+        )
         return response.json()
 
     def create_attestation_policy(self, policy_data: Dict[str, Any]) -> Dict[str, Any]:

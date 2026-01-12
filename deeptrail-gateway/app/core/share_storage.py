@@ -75,7 +75,8 @@ class ShareStorageManager:
     async def store_share(
         self, 
         secret_name: str, 
-        share_2: str, 
+        share_2: Any,  # Can be string or list [index, hex_string]
+        prime_mod_hex: Optional[str] = None,  # Prime modulus for Shamir reassembly
         metadata: Optional[Dict[str, Any]] = None,
         ttl_seconds: int = 86400
     ) -> bool:
@@ -85,6 +86,7 @@ class ShareStorageManager:
         Args:
             secret_name: Name of the secret
             share_2: The share_2 value to store
+            prime_mod_hex: Prime modulus as hex string for Shamir secret recovery
             metadata: Optional metadata associated with the secret
             ttl_seconds: Time to live in seconds (default: 24 hours)
             
@@ -95,6 +97,7 @@ class ShareStorageManager:
             # Prepare data for storage
             share_data = {
                 "share_2": share_2,
+                "prime_mod": prime_mod_hex,  # Store prime_mod for secret reassembly
                 "metadata": metadata or {},
                 "stored_at": int(time.time())
             }
@@ -131,7 +134,7 @@ class ShareStorageManager:
             secret_name: Name of the secret to retrieve
             
         Returns:
-            Dictionary containing share_2 and metadata, or None if not found
+            Dictionary containing share_value, prime_mod, and metadata, or None if not found
         """
         try:
             key = f"share_2:{secret_name}"
@@ -146,7 +149,14 @@ class ShareStorageManager:
             share_data = json.loads(decrypted_data.decode())
             
             logger.debug(f"Retrieved share_2 for secret '{secret_name}'")
-            return share_data
+            
+            # Return in standardized format
+            return {
+                "share_value": share_data.get("share_2"),
+                "prime_mod": share_data.get("prime_mod"),
+                "metadata": share_data.get("metadata", {}),
+                "stored_at": share_data.get("stored_at")
+            }
             
         except Exception as e:
             logger.error(f"Error retrieving share_2 for '{secret_name}': {e}")

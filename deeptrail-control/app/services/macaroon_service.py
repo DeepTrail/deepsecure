@@ -1,4 +1,5 @@
 import datetime
+from datetime import timezone
 from typing import List
 
 from pymacaroons import Macaroon
@@ -46,7 +47,7 @@ class MacaroonService:
         )
 
         # Add standard time-based caveat
-        expires_at = datetime.datetime.utcnow() + datetime.timedelta(
+        expires_at = datetime.datetime.now(timezone.utc).replace(tzinfo=None) + datetime.timedelta(
             seconds=ttl_seconds
         )
         macaroon.add_first_party_caveat(f"time < {expires_at.isoformat()}Z")

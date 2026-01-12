@@ -18,7 +18,7 @@ without requiring calls back to the control plane.
 import pytest
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional, Tuple
 from unittest.mock import Mock, patch, MagicMock
 from jose import jwt as jose_jwt
@@ -262,7 +262,7 @@ class TestJWTTokenValidation:
         self.secret_key = "test-gateway-secret"
         
         # Create test JWT payload
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         self.valid_payload = {
             'sub': 'agent-gateway-test-123',
             'agent_id': 'agent-gateway-test-123',
@@ -425,7 +425,7 @@ class TestGatewayEnforcement:
         self.secret_key = "test-gateway-secret"
         
         # Create test agent with specific policies
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         self.agent_payload = {
             'sub': 'agent-enforcement-test-789',
             'agent_id': 'agent-enforcement-test-789',
@@ -540,7 +540,7 @@ class TestEnforcementPerformance:
         self.secret_key = "test-gateway-secret"
         
         # Create test token
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         payload = {
             'sub': 'agent-perf-test',
             'agent_id': 'agent-perf-test',
@@ -645,7 +645,7 @@ class TestEnforcementEdgeCases:
     
     def test_empty_scope_policy(self):
         """Test enforcement with empty scope in policy."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         payload = {
             'sub': 'agent-empty-scope',
             'agent_id': 'agent-empty-scope',
@@ -671,7 +671,7 @@ class TestEnforcementEdgeCases:
     
     def test_empty_resources_policy(self):
         """Test enforcement with empty resources in policy."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         payload = {
             'sub': 'agent-empty-resources',
             'agent_id': 'agent-empty-resources',
@@ -697,7 +697,7 @@ class TestEnforcementEdgeCases:
     
     def test_missing_policy_claims(self):
         """Test enforcement with missing policy claims in JWT."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         payload = {
             'sub': 'agent-missing-claims',
             'agent_id': 'agent-missing-claims',
@@ -722,7 +722,7 @@ class TestEnforcementEdgeCases:
     
     def test_large_policy_claims(self):
         """Test enforcement with large policy claims."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Create large scope and resources lists
         large_scope = [f'action_{i}:service_{i%10}' for i in range(100)]
@@ -760,7 +760,7 @@ class TestEnforcementEdgeCases:
     
     def test_special_characters_in_claims(self):
         """Test enforcement with special characters in policy claims."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         payload = {
             'sub': 'agent-special-chars',
             'agent_id': 'agent-special-chars',

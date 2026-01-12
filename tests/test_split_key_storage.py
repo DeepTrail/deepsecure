@@ -55,6 +55,18 @@ except ImportError:
 
 import sslib.shamir as shamir
 
+
+def is_redis_available():
+    """Check if Redis is available for testing."""
+    try:
+        r = redis.Redis(host='localhost', port=6379, db=15)
+        r.ping()
+        r.close()
+        return True
+    except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
+        return False
+
+
 class MockShareStorageManager:
     """Mock implementation for testing when gateway isn't available."""
     
@@ -115,6 +127,10 @@ class TestShareStorage:
     @pytest.fixture
     def share_storage(self, redis_url, encryption_key):
         """Create share storage manager for testing."""
+        # Skip tests if Redis isn't available
+        if not is_redis_available():
+            pytest.skip("Redis not available - skipping share storage tests")
+        
         if not GATEWAY_AVAILABLE:
             storage = MockShareStorageManager(redis_url, encryption_key)
         else:
@@ -344,8 +360,8 @@ class TestJITReassembly:
         """Test successful secret reassembly from both shares."""
         # Create a real secret and split it
         original_secret = "test-api-key-for-reassembly"
-        shares = shamir.split_secret(original_secret.encode(), 2, 2)
-        share_1, share_2 = shares
+        shares_dict = shamir.split_secret(original_secret.encode(), 2, 2)
+        share_1, share_2 = shares_dict['shares']
         
         # Mock control plane response (share_1)
         mock_response = Mock()
@@ -509,12 +525,12 @@ class TestSplitKeyEndToEnd:
         # Step 1: Simulate secret splitting (as done by control plane)
         print(f"📋 Step 1: Split secret '{test_secret_data['name']}'")
         original_secret = test_secret_data["value"]
-        shares = shamir.split_secret(original_secret.encode(), 2, 2)
-        share_1, share_2 = shares
+        shares_dict = shamir.split_secret(original_secret.encode(), 2, 2)
+        share_1, share_2 = shares_dict['shares']
         
         print(f"   ✅ Secret split into 2 shares")
-        print(f"   📊 Share 1 length: {len(share_1)} bytes")
-        print(f"   📊 Share 2 length: {len(share_2)} bytes")
+        print(f"   📊 Share 1 length: {len(share_1[1])} bytes")
+        print(f"   📊 Share 2 length: {len(share_2[1])} bytes")
         
         # Step 2: Simulate storage distribution
         print(f"\n🏪 Step 2: Distribute shares")
@@ -537,8 +553,13 @@ class TestSplitKeyEndToEnd:
         print(f"   📥 Fetched share_1 from control plane")
         print(f"   📥 Fetched share_2 from gateway")
         
-        # Combine shares
-        combined_bytes = shamir.combine_shares([fetched_share_1, fetched_share_2])
+        # Combine shares using recover_secret
+        recovery_data = {
+            'required_shares': 2,
+            'prime_mod': shares_dict.get('prime_mod'),
+            'shares': [fetched_share_1, fetched_share_2]
+        }
+        combined_bytes = shamir.recover_secret(recovery_data)
         reassembled_secret = combined_bytes.decode('utf-8')
         
         print(f"   🔐 Combined shares using Shamir's Secret Sharing")
@@ -559,16 +580,29 @@ class TestSplitKeyEndToEnd:
         assert share_1 != share_2
         print(f"   ✅ Individual shares don't reveal original secret")
         
-        # Verify wrong combinations fail
-        dummy_share = "dummy-share-data"
+        # Verify wrong combinations produce incorrect results
+        # Note: Shamir's SS produces a different (wrong) secret with wrong shares,
+        # rather than raising an exception
+        dummy_share = (99, b"\x01\x02\x03\x04")  # Dummy share with different data
         try:
-            shamir.combine_shares([share_1, dummy_share])
-            wrong_combination_failed = False
-        except:
-            wrong_combination_failed = True
+            wrong_recovery = {
+                'required_shares': 2,
+                'prime_mod': shares_dict.get('prime_mod'),
+                'shares': [share_1, dummy_share]
+            }
+            wrong_result = shamir.recover_secret(wrong_recovery)
+            # The result with wrong shares will be garbage, not the original
+            try:
+                wrong_decoded = wrong_result.decode('utf-8')
+            except UnicodeDecodeError:
+                wrong_decoded = None
+            wrong_combination_produces_different_result = (wrong_decoded != original_secret)
+        except Exception:
+            # If it does raise an exception, that's also acceptable
+            wrong_combination_produces_different_result = True
         
-        assert wrong_combination_failed
-        print(f"   ✅ Wrong share combinations fail as expected")
+        assert wrong_combination_produces_different_result
+        print(f"   ✅ Wrong share combinations don't reveal original secret")
         
         print(f"\n🎉 SPLIT-KEY WORKFLOW SIMULATION COMPLETE")
         print(f"   📊 Total workflow steps: 5")

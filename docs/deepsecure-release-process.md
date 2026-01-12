@@ -2,6 +2,23 @@
 
 This document outlines the standard operating procedure for publishing a new version of the `deepsecure` package. Following these steps ensures consistency, quality, and clear communication for each release.
 
+---
+
+## Pre-Release Testing Checklist
+
+Use this checklist as a quick reference before each release. Detailed instructions for each step are provided in the phases below.
+
+- [ ] Run unit tests: `make test-unit`
+- [ ] Run integration tests: `make test-integration` (with backend services running)
+- [ ] Generate test report: `make test-report`
+- [ ] Review failed tests and document known issues
+- [ ] All critical tests pass (verify in `test-results/vX.Y.Z/test-report.md`)
+- [ ] Update CHANGELOG with test summary
+- [ ] Commit test results to `test-results/vX.Y.Z/`
+- [ ] Tag release and push
+
+---
+
 ## Phase 1: Code and Documentation Finalization
 
 This phase involves updating all version numbers and summarizing the work included in the release.

@@ -21,7 +21,7 @@ import json
 import time
 from typing import Dict, List, Any, Optional
 from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import jwt as jwt_lib
 from jose import jwt as jose_jwt
 
@@ -96,8 +96,8 @@ class MockPolicyAggregator:
             "agent_id": agent_id,
             "scope": policy_claims["scope"],
             "resources": policy_claims["resources"],
-            "iat": datetime.utcnow(),
-            "exp": datetime.utcnow() + timedelta(minutes=30)
+            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=30)
         }
         
         # Add extra claims if provided

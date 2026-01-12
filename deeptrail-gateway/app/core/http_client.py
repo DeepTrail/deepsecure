@@ -153,12 +153,27 @@ class ProxyHTTPClient:
             target_url: Target URL for the request
             
         Returns:
-            Prepared headers for the proxied request
+            Prepared headers for the proxied request (normalized to avoid duplicates)
         """
-        headers = {}
+        # Use a case-insensitive dict to avoid duplicate headers
+        # We'll normalize to the canonical HTTP header case
+        headers_lower = {}  # lowercase key -> (canonical_case_key, value)
         parsed_target = urlparse(target_url)
         
-        # Copy allowed headers
+        # Define canonical header names for common headers
+        canonical_names = {
+            'authorization': 'Authorization',
+            'content-type': 'Content-Type',
+            'user-agent': 'User-Agent',
+            'accept': 'Accept',
+            'accept-encoding': 'Accept-Encoding',
+            'accept-language': 'Accept-Language',
+            'content-length': 'Content-Length',
+            'host': 'Host',
+            'x-api-key': 'X-API-Key',
+        }
+        
+        # Copy allowed headers (avoiding duplicates by using lowercase keys)
         for header_name, header_value in original_headers.items():
             header_lower = header_name.lower()
             
@@ -168,18 +183,25 @@ class ProxyHTTPClient:
             
             # Preserve specific headers
             if header_lower in [h.lower() for h in config.routing.preserve_headers]:
-                headers[header_name] = header_value
+                # Use canonical case if known, otherwise keep original
+                canonical_name = canonical_names.get(header_lower, header_name)
+                headers_lower[header_lower] = (canonical_name, header_value)
         
         # Set the correct Host header for the target
-        headers['Host'] = parsed_target.netloc
+        headers_lower['host'] = ('Host', parsed_target.netloc)
         
         # Add forwarded headers
         for header_name, header_value in config.routing.forwarded_headers.items():
-            headers[header_name] = header_value
+            header_lower = header_name.lower()
+            canonical_name = canonical_names.get(header_lower, header_name)
+            headers_lower[header_lower] = (canonical_name, header_value)
         
         # Add User-Agent if not present
-        if 'User-Agent' not in headers:
-            headers['User-Agent'] = 'DeepTrail-Gateway/1.0'
+        if 'user-agent' not in headers_lower:
+            headers_lower['user-agent'] = ('User-Agent', 'DeepTrail-Gateway/1.0')
+        
+        # Convert back to regular dict with canonical keys
+        headers = {canonical: value for canonical, value in headers_lower.values()}
         
         return headers
     

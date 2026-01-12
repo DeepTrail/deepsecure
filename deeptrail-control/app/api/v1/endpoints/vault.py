@@ -18,6 +18,36 @@ from app.schemas.agent import AgentRotateRequest # Import schema for rotation
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+@router.get("/secrets", status_code=status.HTTP_200_OK)
+def list_secrets(
+    db: deps.DbDep,
+    _: Any = deps.APIKeyDep
+):
+    """
+    Lists all secrets in the vault (metadata only, no values).
+    Returns secret names, created timestamps, and metadata labels.
+    Share values are never exposed.
+    """
+    logger.info("Listing all secrets in vault")
+    try:
+        secrets = crud.secret.list_secrets(db=db)
+        return {
+            "secrets": [
+                {
+                    "name": s.name,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                    "metadata": s.secret_metadata or {}
+                }
+                for s in secrets
+            ],
+            "count": len(secrets)
+        }
+    except Exception as e:
+        logger.error(f"Failed to list secrets: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not list secrets")
+
+
 @router.post("/store", response_model=SecretStoreResponse, status_code=status.HTTP_201_CREATED)
 def store_secret(
     secret_in: SecretStoreRequest,
@@ -57,14 +87,183 @@ def get_secret_direct(
         
         return {
             "name": secret_obj.name,
-            "value": secret_obj.value,
-            "created_at": secret_obj.created_at
+            "metadata": secret_obj.secret_metadata or {},
+            "created_at": secret_obj.created_at.isoformat() if secret_obj.created_at else None
         }
     except HTTPException:
         raise  # Re-raise HTTP exceptions as-is
     except Exception as e:
         logger.error(f"Failed to retrieve secret {name}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not retrieve secret")
+
+
+@router.get("/secrets/{name}/value", status_code=status.HTTP_200_OK)
+def get_secret_with_value(
+    name: str,
+    db: deps.DbDep,
+    _: Any = deps.APIKeyDep
+):
+    """
+    Retrieve a secret with its reassembled value.
+    
+    This endpoint fetches share_1 from the local database and share_2 from the gateway,
+    then reassembles the original secret using Shamir's Secret Sharing algorithm.
+    
+    This is for administrative/CLI use and requires API key authentication.
+    The reassembled secret only exists briefly in memory during this request.
+    """
+    import json
+    import httpx
+    from sslib import shamir
+    from app.core.config import settings
+    
+    logger.info(f"Retrieving secret with value for: {name}")
+    try:
+        # 1. Get share_1 from the local database
+        secret_obj = crud.secret.get_secret_by_name(db=db, name=name)
+        if not secret_obj:
+            logger.warning(f"Secret '{name}' not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Secret '{name}' not found")
+        
+        share_1_str = secret_obj.share_1
+        
+        # 2. Fetch share_2 from the gateway
+        try:
+            gateway_url = f"{settings.GATEWAY_URL}/internal/shares/{name}"
+            headers = {"X-Internal-API-Token": settings.GATEWAY_INTERNAL_API_TOKEN}
+            with httpx.Client() as client:
+                response = client.get(gateway_url, headers=headers)
+                if response.status_code == 404:
+                    logger.warning(f"Share_2 for '{name}' not found in gateway (may have expired)")
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, 
+                                      detail=f"Secret share not found in gateway (may have expired)")
+                response.raise_for_status()
+                gateway_data = response.json()
+                # Gateway returns {"secret_name": ..., "share_2": {"share_value": [...], "prime_mod": ..., ...}}
+                share_2_container = gateway_data.get("share_2", {})
+                # Extract the actual share value from the container
+                if isinstance(share_2_container, dict):
+                    share_2_str = share_2_container.get("share_value")
+                    gateway_prime_mod_hex = share_2_container.get("prime_mod")
+                else:
+                    share_2_str = share_2_container
+                    gateway_prime_mod_hex = None
+        except httpx.RequestError as e:
+            logger.error(f"Could not connect to gateway for share_2: {e}")
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY,
+                              detail="Could not retrieve secret share from gateway")
+        
+        # 3. Parse shares from JSON
+        try:
+            share_1 = json.loads(share_1_str) if isinstance(share_1_str, str) else share_1_str
+            share_2 = json.loads(share_2_str) if isinstance(share_2_str, str) else share_2_str
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse shares: {e}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                              detail="Failed to parse secret shares")
+        
+        # 4. Reassemble the secret using Shamir's algorithm
+        try:
+            # Convert hex strings back to bytes
+            share_1_bytes = (share_1[0], bytes.fromhex(share_1[1]))
+            share_2_bytes = (share_2[0], bytes.fromhex(share_2[1]))
+            
+            # Get prime_mod from secret_metadata (stored during split) or gateway response
+            prime_mod_hex = None
+            if secret_obj.secret_metadata:
+                prime_mod_hex = secret_obj.secret_metadata.get('_prime_mod')
+            if not prime_mod_hex and gateway_prime_mod_hex:
+                prime_mod_hex = gateway_prime_mod_hex
+            
+            if prime_mod_hex:
+                prime_mod = bytes.fromhex(prime_mod_hex)
+            else:
+                # Fallback: estimate prime_mod based on share length (may not work)
+                share_len = len(share_1_bytes[1])
+                prime_mod = b'\x07' + b'\xff' * (share_len - 1)
+                logger.warning(f"Using estimated prime_mod for secret '{name}' - consider re-storing")
+            
+            # Reconstruct the data structure expected by recover_secret
+            recovery_data = {
+                'required_shares': 2,
+                'prime_mod': prime_mod,
+                'shares': [share_1_bytes, share_2_bytes]
+            }
+            
+            # Reassemble the secret
+            recovered_secret = shamir.recover_secret(recovery_data)
+            secret_value = recovered_secret.decode('utf-8')
+            
+            logger.info(f"Successfully reassembled secret '{name}'")
+        except Exception as e:
+            logger.error(f"Failed to reassemble secret '{name}': {e}", exc_info=True)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                              detail="Failed to reassemble secret")
+        
+        return {
+            "name": secret_obj.name,
+            "value": secret_value,
+            "metadata": secret_obj.secret_metadata or {},
+            "created_at": secret_obj.created_at.isoformat() if secret_obj.created_at else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve secret with value {name}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+                          detail="Could not retrieve secret")
+
+
+@router.delete("/secrets/{name}", status_code=status.HTTP_200_OK)
+def delete_secret(
+    name: str,
+    db: deps.DbDep,
+    _: Any = deps.APIKeyDep
+):
+    """
+    Delete a secret from the vault by name.
+    This also deletes the corresponding share from the gateway.
+    """
+    import httpx
+    from app.core.config import settings
+    
+    logger.info(f"Deleting secret with name: {name}")
+    try:
+        # First, check if the secret exists
+        secret_obj = crud.secret.get_secret_by_name(db=db, name=name)
+        if not secret_obj:
+            logger.warning(f"Secret '{name}' not found for deletion")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Secret '{name}' not found")
+        
+        # Delete share from gateway (best effort - gateway might already have expired it)
+        try:
+            gateway_url = f"{settings.GATEWAY_URL}/internal/shares/{name}"
+            headers = {"X-Internal-API-Token": settings.GATEWAY_INTERNAL_API_TOKEN}
+            with httpx.Client() as client:
+                response = client.delete(gateway_url, headers=headers)
+                if response.status_code == 404:
+                    logger.info(f"Share for '{name}' not found in gateway (may have expired)")
+                else:
+                    response.raise_for_status()
+                    logger.info(f"Successfully deleted share for '{name}' from gateway")
+        except httpx.RequestError as e:
+            logger.warning(f"Could not delete share from gateway for '{name}': {e}")
+            # Continue with local deletion even if gateway fails
+        
+        # Delete from local database
+        deleted = crud.secret.delete_secret(db=db, name=name)
+        if deleted:
+            logger.info(f"Successfully deleted secret '{name}' from control plane")
+            return {"name": name, "message": "Secret deleted successfully"}
+        else:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete secret")
+            
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except Exception as e:
+        logger.error(f"Failed to delete secret {name}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not delete secret")
 
 @router.post("/credentials", response_model=schemas.credential.CredentialIssueResponse, status_code=status.HTTP_201_CREATED)
 def issue_credential(

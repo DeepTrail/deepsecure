@@ -1,4 +1,5 @@
 import datetime
+from datetime import timezone
 import pytest
 from pymacaroons import Macaroon
 
@@ -59,7 +60,7 @@ def test_minted_macaroon_contains_correct_caveats(macaroon_service: MacaroonServ
             expires_str = cav.split(" < ")[1].rstrip("Z")
             expires = datetime.datetime.fromisoformat(expires_str)
             # Check if expiry is roughly correct (within a few seconds)
-            assert datetime.datetime.utcnow() + datetime.timedelta(seconds=ttl - 5) < expires
+            assert datetime.datetime.now(timezone.utc).replace(tzinfo=None) + datetime.timedelta(seconds=ttl - 5) < expires
             break
     assert time_caveat_found, "Time caveat was not found in the macaroon"
 
