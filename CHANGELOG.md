@@ -95,6 +95,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `deepsecure/client.py` - Added `client.gateway` and `client.anthropic` attributes
 - `deepsecure/integrations/openai.py` - Refactored to use GatewayClient
 
+### Test Summary
+
+| Metric | Value |
+|--------|-------|
+| Total Tests | 292 |
+| Passed | 270 |
+| Failed | 0 |
+| Skipped | 22 |
+| Errors | 0 |
+| Duration | 62.04 seconds |
+| Coverage | 46.85% |
+
+**Status: ✅ All tests passed** - 72 new tests added vs v0.1.10
+
+#### **Critical Tests Verified**
+- ✅ Agent authentication flow
+- ✅ Vault secret storage and retrieval
+- ✅ Policy creation and enforcement
+- ✅ Gateway request proxying
+- ✅ Delegation with split-key workflow
+- ✅ OpenAI integration
+- ✅ Anthropic integration (new)
+
+#### **New Feature Tests Added**
+- `GatewayClient` initialization and request methods
+- Generic HTTP request proxying through gateway
+- Auto-detection of secret names for known services
+- Streaming response support
+- `AnthropicIntegration` class initialization
+- `client.credentials` namespace methods
+- `client.identity_manager` property
+- `client.get_agent()` method
+
+#### **Test Infrastructure Improvements**
+- Added environment variable mocking fixtures for integration tests
+- Marked integration tests with `@pytest.mark.integration` for selective execution
+- Added `TERM` environment variable setup to fix `rich.console` errors
+- New Makefile targets: `make test-unit`, `make test-integration`, `make test-report`
+
+#### **Deprecation Warnings (Action Items for v0.2.0)**
+| Warning | Count | Planned Fix |
+|---------|-------|-------------|
+| `datetime.utcnow()` deprecated | ~70 | Migrate to `datetime.now(datetime.UTC)` |
+| Pydantic v1 patterns | ~25 | Use `model_dump()` instead of `dict()` |
+| `orm_mode` deprecated | 4 | Rename to `from_attributes` |
+| `sslib.shamir` missing param | 5 | Add `required_shares` parameter |
+
+Full test report: [`test-results/v0.1.11/test-report.md`](test-results/v0.1.11/test-report.md)
+
 ## [0.1.10] - 2025-07-21
 
 ### 🏗️ **MAJOR ARCHITECTURAL TRANSFORMATION + CRITICAL STABILITY FIXES**
