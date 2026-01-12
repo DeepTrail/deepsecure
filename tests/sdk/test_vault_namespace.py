@@ -26,11 +26,11 @@ def test_vault_store_secret_includes_target_base_url_and_labels(monkeypatch):
 
 def test_vault_get_secret_admin_fetches_directly(monkeypatch):
     client = Client(silent_mode=True)
-    with patch.object(client, '_request', create=True) as mock_req:
-        mock_resp = MagicMock(); mock_resp.json.return_value = {"name": "x", "value": "v"}
-        mock_req.return_value = mock_resp
+    # Mock get_secret_direct which get_secret_admin delegates to
+    with patch.object(client, 'get_secret_direct', return_value={"name": "x", "value": "v"}) as mock_get:
         res = client.vault.get_secret_admin("x")
         assert res["name"] == "x"
+        mock_get.assert_called_once_with("x", include_value=True)
 
 
 def test_vault_list_secrets_admin_optional(monkeypatch):

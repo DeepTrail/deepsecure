@@ -39,8 +39,12 @@ def test_authenticated_request_obtains_token_when_missing(monkeypatch):
 
 
 def test_authenticated_request_reuses_existing_token(monkeypatch):
+    from datetime import datetime, timedelta
+    
     client = make_client()
     client._access_token = "existing-token"
+    # Also set a valid expiry time so token is considered valid
+    client._token_expires_at = datetime.now() + timedelta(hours=1)
 
     mock_resp = MagicMock()
     client.client.request.return_value = mock_resp

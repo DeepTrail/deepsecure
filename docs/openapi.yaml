@@ -44,7 +44,7 @@ info:
     - **Control Plane**: `http://localhost:8000/api/v1/` (Management operations)
     - **Gateway**: `http://localhost:8002/` (Runtime operations, proxying)
     - **Production**: Replace localhost with your deployed service URLs
-  version: "0.1.10"
+  version: "0.1.11"
   contact:
     name: DeepSecure Support
     url: https://github.com/DeepTrail/deepsecure

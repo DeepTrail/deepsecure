@@ -7,6 +7,9 @@ Tests all aspects of CLI authentication including:
 - Configuration management
 - Error handling
 - Integration with backend services
+
+NOTE: These tests require backend services to be running for full integration testing.
+They are marked as integration tests and will be skipped if backend is not available.
 """
 import os
 import pytest
@@ -17,6 +20,7 @@ import requests
 import time
 import tempfile
 import shutil
+import httpx
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -31,6 +35,32 @@ from deepsecure._core.crypto.key_manager import KeyManager
 from deepsecure._core.identity_manager import IdentityManager
 from deepsecure._core import config
 from deepsecure.exceptions import DeepSecureError, DeepSecureClientError
+
+
+# Mark all tests in this module as integration tests
+pytestmark = pytest.mark.integration
+
+
+def backend_is_running() -> bool:
+    """Check if backend services are running."""
+    try:
+        httpx.get("http://localhost:8000/health", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_env_and_check_backend():
+    """Set up environment variables and skip if backend not running."""
+    # Set required environment variables
+    os.environ.setdefault("DEEPSECURE_DEEPTRAIL_CONTROL_URL", "http://localhost:8000")
+    os.environ.setdefault("DEEPSECURE_DEEPTRAIL_GATEWAY_URL", "http://localhost:8002")
+    
+    if not backend_is_running():
+        pytest.skip("Backend services not running - skipping CLI authentication tests")
+    
+    yield
 
 
 class TestCLIAuthentication:

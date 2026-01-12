@@ -29,8 +29,70 @@ from ._core.policy_client import PolicyClient
 from .integrations.gateway import GatewayClient
 from .integrations.openai import OpenAIIntegration
 from .integrations.anthropic import AnthropicIntegration
+from . import __version__
 
 logger = logging.getLogger(__name__)
+
+
+class CredentialsNamespace:
+    """
+    Namespace for credential operations (issue, verify, revoke).
+    
+    Provides a clean API surface for credential management operations,
+    delegating to the appropriate underlying client methods.
+    """
+    
+    def __init__(self, client: 'Client'):
+        self._client = client
+    
+    def issue(self, agent_id: str, scope: str, ttl: str = "5m", **kwargs):
+        """
+        Issues a new credential for an agent.
+        
+        Args:
+            agent_id: The agent to issue the credential for.
+            scope: The access scope for the credential.
+            ttl: Time-to-live (e.g., "5m", "1h", "7d").
+            
+        Returns:
+            CredentialResponse with credential details.
+        """
+        # Call vault.issue (the alias), not issue_credential directly
+        # This allows tests to mock vault.issue cleanly
+        return self._client.vault.issue(
+            scope=scope,
+            ttl=ttl,
+            agent_id=agent_id,
+            **kwargs
+        )
+    
+    def verify(self, credential_id: str, **kwargs):
+        """
+        Verifies a credential's validity.
+        
+        Args:
+            credential_id: The ID of the credential to verify.
+            
+        Returns:
+            Verification result with status.
+        """
+        # Call vault.verify to allow tests to mock cleanly
+        return self._client.vault.verify(credential_id, **kwargs)
+    
+    def revoke(self, credential_id: str, **kwargs):
+        """
+        Revokes a credential.
+        
+        Args:
+            credential_id: The ID of the credential to revoke.
+            
+        Returns:
+            Revocation result with status.
+        """
+        # Call vault.revoke (the alias), not revoke_credential directly
+        # This allows tests to mock vault.revoke cleanly
+        return self._client.vault.revoke(credential_id, **kwargs)
+
 
 class Client(BaseClient):
     """
@@ -71,6 +133,51 @@ class Client(BaseClient):
         
         # Initialize Anthropic integration for gateway-proxied Claude calls
         self.anthropic = AnthropicIntegration(self)
+        
+        # Initialize credentials namespace for issue/verify/revoke operations
+        self._credentials_namespace = CredentialsNamespace(self)
+        
+        # Store control URL for external access
+        self._control_url = base_url
+    
+    @property
+    def control_url(self) -> str:
+        """The URL of the DeepSecure Control Plane."""
+        return self._control_url
+    
+    @property
+    def version(self) -> str:
+        """The version of the DeepSecure SDK."""
+        return __version__
+    
+    @property
+    def identity_manager(self):
+        """
+        Provides access to the identity manager for key generation and storage.
+        
+        This is a public accessor for the internal identity manager, enabling
+        operations like generating Ed25519 keypairs and storing keys.
+        """
+        return self._identity_manager
+    
+    @property
+    def credentials(self):
+        """
+        Provides access to credentials operations.
+        
+        Returns the vault client which handles credential issue/verify/revoke.
+        This is a convenience namespace for credential operations.
+        """
+        return self._credentials_namespace
+    
+    def get_agent(self, name: str, auto_create: bool = True) -> Agent:
+        """
+        Get a handle for a specific agent by name.
+        If auto_create is True, the agent will be created if it doesn't exist.
+        
+        This is an alias for agent() to match common SDK patterns.
+        """
+        return self.agent(name, auto_create=auto_create)
 
     def agent(self, name: str, auto_create: bool = True) -> Agent:
         """
@@ -733,3 +840,8 @@ class DeepSecure:
     @property
     def agent_id(self) -> Optional[str]:
         return self._agent_id
+    
+    @property
+    def identity(self) -> Optional[AgentIdentity]:
+        """The current agent identity, if one was passed directly."""
+        return self._identity

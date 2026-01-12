@@ -1,6 +1,9 @@
 """
 Tests for Phase 1 Task 1.2: Ed25519 Agent Identity Model
 Tests all aspects of Ed25519 key generation, storage, and authentication
+
+NOTE: These tests require backend services to be running for full integration testing.
+They are marked as integration tests and will be skipped if backend is not available.
 """
 import os
 import pytest
@@ -9,6 +12,7 @@ import base64
 import uuid
 import requests
 import time
+import httpx
 from typing import Dict, Any, Optional
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -20,6 +24,32 @@ from deepsecure._core.identity_manager import IdentityManager
 from deepsecure._core.agent_client import AgentClient
 from deepsecure._core.base_client import BaseClient
 from deepsecure import Client
+
+
+# Mark all tests in this module as integration tests
+pytestmark = pytest.mark.integration
+
+
+def backend_is_running() -> bool:
+    """Check if backend services are running."""
+    try:
+        httpx.get("http://localhost:8000/health", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_env_and_check_backend():
+    """Set up environment variables and skip if backend not running."""
+    # Set required environment variables
+    os.environ.setdefault("DEEPSECURE_DEEPTRAIL_CONTROL_URL", "http://localhost:8000")
+    os.environ.setdefault("DEEPSECURE_DEEPTRAIL_GATEWAY_URL", "http://localhost:8002")
+    
+    if not backend_is_running():
+        pytest.skip("Backend services not running - skipping Ed25519 integration tests")
+    
+    yield
 
 
 class TestEd25519Implementation:

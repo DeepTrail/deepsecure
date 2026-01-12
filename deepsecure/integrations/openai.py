@@ -107,6 +107,36 @@ class OpenAIIntegration:
             json=payload
         )
     
+    def chat_completions(
+        self,
+        agent_id: str,
+        body: Dict[str, Any],
+        stream: bool = False
+    ) -> httpx.Response:
+        """
+        Create a chat completion using the raw request body.
+        
+        This is an alternative API that accepts the full request body directly,
+        useful when you want more control over the request.
+        
+        Args:
+            agent_id: Agent making the request.
+            body: The complete request body (model, messages, etc.)
+            stream: Whether to stream the response.
+            
+        Returns:
+            httpx.Response containing the completion
+        """
+        return self._client.gateway.request(
+            agent_id=agent_id,
+            target_base_url=self.TARGET_BASE_URL,
+            path="/v1/chat/completions",
+            method="POST",
+            secret_name=self.DEFAULT_SECRET,
+            json=body,
+            stream=stream
+        )
+
     def create_embedding(
         self,
         input: str,

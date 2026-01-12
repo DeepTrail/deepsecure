@@ -86,15 +86,16 @@ class GatewayClient:
     
     def request(
         self,
-        method: str,
-        path: str,
         *,
+        agent_id: str,
         target_base_url: str,
-        agent_id: Optional[str] = None,
+        path: str,
+        method: str = "GET",
         secret_name: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
         json: Optional[Dict[str, Any]] = None,
         data: Optional[bytes] = None,
+        content: Optional[bytes] = None,
         params: Optional[Dict[str, str]] = None,
         timeout: float = 30.0,
         stream: bool = False,
@@ -190,8 +191,10 @@ class GatewayClient:
             headers=gateway_headers,
             json=json,
             data=data,
+            content=content,
             params=params,
-            base_url_override=self._gateway_url
+            base_url_override=self._gateway_url,
+            stream=stream,
         )
         
         return response
@@ -215,7 +218,7 @@ class GatewayClient:
         Returns:
             httpx.Response from the target API
         """
-        return self.request("GET", path, target_base_url=target_base_url, **kwargs)
+        return self.request(method="GET", path=path, target_base_url=target_base_url, **kwargs)
     
     def post(
         self,
@@ -234,7 +237,7 @@ class GatewayClient:
         Returns:
             httpx.Response from the target API
         """
-        return self.request("POST", path, target_base_url=target_base_url, **kwargs)
+        return self.request(method="POST", path=path, target_base_url=target_base_url, **kwargs)
     
     def put(
         self,
@@ -253,7 +256,7 @@ class GatewayClient:
         Returns:
             httpx.Response from the target API
         """
-        return self.request("PUT", path, target_base_url=target_base_url, **kwargs)
+        return self.request(method="PUT", path=path, target_base_url=target_base_url, **kwargs)
     
     def delete(
         self,
@@ -272,7 +275,7 @@ class GatewayClient:
         Returns:
             httpx.Response from the target API
         """
-        return self.request("DELETE", path, target_base_url=target_base_url, **kwargs)
+        return self.request(method="DELETE", path=path, target_base_url=target_base_url, **kwargs)
     
     def patch(
         self,
@@ -291,4 +294,4 @@ class GatewayClient:
         Returns:
             httpx.Response from the target API
         """
-        return self.request("PATCH", path, target_base_url=target_base_url, **kwargs)
+        return self.request(method="PATCH", path=path, target_base_url=target_base_url, **kwargs)

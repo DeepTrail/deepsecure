@@ -20,9 +20,13 @@ Prerequisites:
 - Redis server running for split-key storage
 - DeepSecure backend services (control plane + gateway)
 - All Phase 4 components implemented (delegation + split-key)
+
+NOTE: These are integration tests that require running backend services.
+Mark with @pytest.mark.integration and skip if services not available.
 """
 
 import pytest
+import os
 import time
 import asyncio
 import concurrent.futures
@@ -45,6 +49,32 @@ from deepsecure.exceptions import DeepSecureError
 # Test framework imports
 from cryptography.fernet import Fernet
 import sslib.shamir as shamir
+
+
+# Mark all tests in this module as integration tests
+pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(scope="module", autouse=True)
+def mock_env_for_integration(request):
+    """
+    Set environment variables for integration tests.
+    Skip all tests if backend services are not available.
+    """
+    # Set required environment variables
+    os.environ.setdefault("DEEPSECURE_DEEPTRAIL_CONTROL_URL", "http://localhost:8000")
+    os.environ.setdefault("DEEPSECURE_DEEPTRAIL_GATEWAY_URL", "http://localhost:8002")
+    
+    # Check if backend services are running
+    import httpx
+    try:
+        httpx.get("http://localhost:8000/health", timeout=2)
+    except Exception:
+        pytest.skip("Backend services not running - skipping integration tests")
+    
+    yield
+    
+    # Cleanup is handled by individual test fixtures
 
 
 @dataclass

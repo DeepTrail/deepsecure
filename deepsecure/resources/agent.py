@@ -78,6 +78,48 @@ class Agent:
             path=path
         )
 
+    def gateway_request(
+        self,
+        target_base_url: str,
+        path: str,
+        method: str = "GET",
+        **kwargs
+    ):
+        """
+        Make a gateway request using this agent's identity.
+        
+        This is a convenience method that calls the gateway client's request
+        method with this agent's ID automatically.
+        
+        Args:
+            target_base_url: The base URL of the target API.
+            path: The path to request.
+            method: HTTP method (default: GET).
+            **kwargs: Additional arguments passed to gateway.request().
+            
+        Returns:
+            The response from the gateway.
+        """
+        return self._client_ref._parent_client.gateway.request(
+            agent_id=self.id,
+            target_base_url=target_base_url,
+            path=path,
+            method=method,
+            **kwargs
+        )
+
+    def openai_list_models(self):
+        """
+        List OpenAI models using this agent's identity.
+        
+        This is a convenience method that calls the OpenAI integration's
+        list_models method with this agent's ID automatically.
+        
+        Returns:
+            The response from the OpenAI API via the gateway.
+        """
+        return self._client_ref._parent_client.openai.list_models(agent_id=self.id)
+
     def to_dict(self) -> Dict[str, Any]:
         """Returns the agent's data as a dictionary."""
         return {
