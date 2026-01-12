@@ -6,8 +6,8 @@ class Token(BaseModel):
 
 class TokenRequest(BaseModel):
     """Schema for token request payload."""
-    agent_id: str = Field(..., example="agent_f3b4c1a9")
-    signed_nonce: str = Field(..., example="base64_encoded_signed_nonce")
+    agent_id: str = Field(..., json_schema_extra={"example": "agent_f3b4c1a9"})
+    signed_nonce: str = Field(..., json_schema_extra={"example": "base64_encoded_signed_nonce"})
 
 # Potentially add TokenData schema if needed for decoding
 # class TokenData(BaseModel):
@@ -15,6 +15,6 @@ class TokenRequest(BaseModel):
 #     # Add other expected claims like agent_id if needed
 
 class AgentLogin(BaseModel):
-    agent_id: str = Field(..., example="agent_f3b4c1a9")
+    agent_id: str = Field(..., json_schema_extra={"example": "agent_f3b4c1a9"})
     # Signature is typically base64 encoded bytes
-    signature: str = Field(..., example="base64_encoded_signature_string") 
+    signature: str = Field(..., json_schema_extra={"example": "base64_encoded_signature_string"}) 

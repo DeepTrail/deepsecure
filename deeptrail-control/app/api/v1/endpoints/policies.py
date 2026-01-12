@@ -30,13 +30,23 @@ def create_policy(
     """
     Create new policy.
     """
+    # Normalize agent_id to full format with prefix
+    agent_id_str = str(policy_in.agent_id)
+    if not agent_id_str.startswith("agent-"):
+        full_agent_id = f"agent-{agent_id_str}"
+    else:
+        full_agent_id = agent_id_str
+    
     # Check if agent exists
-    agent = crud.agent.get(db=db, id=policy_in.agent_id)
+    agent = crud.agent.get_by_agent_id(db=db, agent_id=full_agent_id)
     if not agent:
         raise HTTPException(
             status_code=404,
-            detail=f"Agent with id {policy_in.agent_id} not found",
+            detail=f"Agent with id {full_agent_id} not found",
         )
+    
+    # Update policy_in with the full agent_id for storage
+    policy_in.agent_id = full_agent_id
     policy = crud.policy.create(db, obj_in=policy_in)
     return policy
 

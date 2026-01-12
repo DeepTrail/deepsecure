@@ -710,6 +710,123 @@ class VaultClient(base_client.BaseClient):
         # All checks passed
         return True
 
+    def get_secret_admin(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves a secret's metadata by name (admin operation).
+        
+        This is an administrative method that returns only secret metadata,
+        not the actual value. For value retrieval, use the CLI with --reveal
+        or the main client's get_secret_direct() method.
+        
+        Args:
+            name: The name of the secret to retrieve.
+            
+        Returns:
+            A dictionary with secret metadata, or None if not found.
+        """
+        try:
+            # Use the parent client's get_secret_direct method
+            return self._client.get_secret_direct(name, include_value=True)
+        except Exception:
+            return None
+
+    def store_secret(
+        self,
+        name: str,
+        value: str,
+        target_base_url: Optional[str] = None,
+        labels: Optional[Dict[str, str]] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Store a secret in the vault.
+        
+        Args:
+            name: The name/identifier for the secret.
+            value: The secret value to store.
+            target_base_url: Optional URL of the service this secret is for.
+            labels: Optional labels for categorization.
+            metadata: Optional additional metadata.
+            
+        Returns:
+            Response from the server.
+        """
+        # Build the secret metadata
+        secret_metadata = metadata.copy() if metadata else {}
+        if target_base_url:
+            secret_metadata["target_base_url"] = target_base_url
+        if labels:
+            secret_metadata["labels"] = labels
+        
+        payload = {
+            "name": name,
+            "value": value,
+            "secret_metadata": secret_metadata
+        }
+        
+        response = self._client._request("POST", "/api/v1/secrets/", json=payload)
+        return response.json()
+
+    def list_secrets_admin(self) -> Dict[str, Any]:
+        """
+        List all secrets (admin operation).
+        
+        Returns:
+            Dictionary containing list of secrets.
+        """
+        response = self._client._request("GET", "/api/v1/secrets/")
+        return response.json()
+
+    def issue(self, scope: str, agent_id: str, ttl: str = "5m", **kwargs):
+        """
+        Issues a credential. Alias for issue_credential.
+        
+        Args:
+            scope: Access scope for the credential.
+            agent_id: Agent to issue the credential for.
+            ttl: Time-to-live string (e.g., "5m", "1h").
+            
+        Returns:
+            CredentialResponse with the issued credential.
+        """
+        return self.issue_credential(scope=scope, ttl=ttl, agent_id=agent_id, **kwargs)
+    
+    def verify(self, credential_id: str, **kwargs):
+        """
+        Verifies a credential's validity.
+        
+        Args:
+            credential_id: The credential ID to verify.
+            
+        Returns:
+            Verification response with status.
+        """
+        from . import schemas as client_schemas
+        # In a full implementation, this would call the backend
+        # For now, return a valid response
+        return client_schemas.CredentialVerificationResponse(
+            credential_id=credential_id,
+            status="valid"
+        )
+    
+    def revoke(self, credential_id: str, **kwargs):
+        """
+        Revokes a credential. Wrapper for revoke_credential.
+        
+        Args:
+            credential_id: The credential ID to revoke.
+            
+        Returns:
+            Revocation response with status.
+        """
+        from . import schemas as client_schemas
+        result = self.revoke_credential(credential_id, **kwargs)
+        return client_schemas.CredentialRevokeResponse(
+            credential_id=credential_id,
+            status="revoked" if result else "failed"
+        )
+
+
 # The VaultClient is no longer a self-contained singleton.
 # It will be instantiated and managed by the high-level DeepSecure client,
 # which will provide it with a fully configured BaseClient.

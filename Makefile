@@ -1,6 +1,6 @@
 # Makefile for DeepSecure development
 
-.PHONY: help install install-dev install-traditional test lint format build clean docs security
+.PHONY: help install install-dev install-traditional test test-unit test-integration test-report lint format build clean docs security
 
 # Default target
 help:
@@ -14,7 +14,10 @@ help:
 	@echo "  setup             - Run automated setup script"
 	@echo ""
 	@echo "Development Commands:"
-	@echo "  test              - Run tests"
+	@echo "  test              - Run all tests"
+	@echo "  test-unit         - Run unit tests only (no backend required)"
+	@echo "  test-integration  - Run integration tests (requires backend)"
+	@echo "  test-report       - Generate versioned test report"
 	@echo "  test-cov          - Run tests with coverage"
 	@echo "  lint              - Run linting (ruff + mypy)"
 	@echo "  format            - Format code (black + isort)"
@@ -45,6 +48,23 @@ setup:
 # Development targets
 test:
 	pytest
+
+test-unit:
+	pytest -m "not integration and not e2e" -v
+
+test-integration:
+	pytest -m "integration" -v
+
+test-report:
+	@VERSION=$$(python -c "import deepsecure; print(deepsecure.__version__)"); \
+	mkdir -p test-results/v$$VERSION; \
+	pytest --tb=short --json-report --json-report-file=test-results/v$$VERSION/test-report.json 2>&1 | tee test-results/v$$VERSION/test-output.txt; \
+	echo "# Test Report for v$$VERSION" > test-results/v$$VERSION/test-report.md; \
+	echo "" >> test-results/v$$VERSION/test-report.md; \
+	echo "Generated: $$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> test-results/v$$VERSION/test-report.md; \
+	echo "" >> test-results/v$$VERSION/test-report.md; \
+	echo "See test-report.json for detailed results." >> test-results/v$$VERSION/test-report.md; \
+	echo "✅ Test report generated at test-results/v$$VERSION/"
 
 test-cov:
 	pytest --cov=deepsecure --cov-report=html --cov-report=term

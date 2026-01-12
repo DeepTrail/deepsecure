@@ -20,7 +20,7 @@ import json
 import time
 from typing import Dict, List, Any, Optional
 from unittest.mock import Mock, patch
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Simulated DeepSecure policy management API functionality
 class MockPolicyAPI:
@@ -55,7 +55,7 @@ class MockPolicyAPI:
             "effect": policy_data.get("effect", "allow"),
             "actions": policy_data["actions"],
             "resources": policy_data["resources"],
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
         
         self.policies[policy_id] = policy
@@ -81,7 +81,7 @@ class MockPolicyAPI:
         
         policy = self.policies[policy_id].copy()
         policy.update(update_data)
-        policy["updated_at"] = datetime.utcnow().isoformat()
+        policy["updated_at"] = datetime.now(timezone.utc).isoformat()
         
         self.policies[policy_id] = policy
         return policy

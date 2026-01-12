@@ -9,7 +9,7 @@ enforces policies embedded in JWT tokens.
 import pytest
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any
 from jose import jwt as jose_jwt
 
@@ -159,7 +159,7 @@ class TestSimpleGatewayEnforcement:
         self.secret_key = "demo-gateway-secret"
         
         # Create a test JWT with policies
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         self.test_claims = {
             'sub': 'agent-demo-test-123',
             'agent_id': 'agent-demo-test-123', 
@@ -311,7 +311,7 @@ class TestGatewayPerformance:
         self.enforcer = SimpleGatewayEnforcer()
         
         # Create test token
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         claims = {
             'sub': 'agent-perf-test',
             'agent_id': 'agent-perf-test',
@@ -357,7 +357,7 @@ class TestComplexPolicyScenarios:
     
     def test_multi_resource_agent(self):
         """Test agent with access to multiple resources."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         claims = {
             'sub': 'agent-multi-resource',
             'agent_id': 'agent-multi-resource',
@@ -399,7 +399,7 @@ class TestComplexPolicyScenarios:
     
     def test_restricted_agent(self):
         """Test agent with very limited permissions."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         claims = {
             'sub': 'agent-restricted',
             'agent_id': 'agent-restricted',
@@ -446,7 +446,7 @@ def test_phase3_task_3_4_demo_summary():
     enforcer = SimpleGatewayEnforcer()
     
     # Create test token with policies
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     test_claims = {
         'sub': 'agent-summary-test',
         'agent_id': 'agent-summary-test',

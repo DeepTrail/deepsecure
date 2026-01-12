@@ -4,6 +4,7 @@ Final validation test for enhanced policy CLI commands.
 """
 
 import sys
+import re
 import uuid
 from unittest.mock import Mock, patch
 from typer.testing import CliRunner
@@ -13,6 +14,12 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from deepsecure.commands.policy import app as policy_app
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
 
 def test_enhanced_policy_commands():
     """Test all enhanced policy CLI commands."""
@@ -47,7 +54,8 @@ def test_enhanced_policy_commands():
         ])
         
         assert result.exit_code == 0
-        assert "Azure attestation policy created successfully" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Azure attestation policy created successfully" in output
         print("✅ Azure policy creation working")
     
     # Test 2: Docker attestation policy creation
@@ -74,7 +82,8 @@ def test_enhanced_policy_commands():
         ])
         
         assert result.exit_code == 0
-        assert "Docker attestation policy created successfully" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Docker attestation policy created successfully" in output
         print("✅ Docker policy creation working")
     
     # Test 3: Policy listing
@@ -102,9 +111,10 @@ def test_enhanced_policy_commands():
         result = runner.invoke(policy_app, ['attestation', 'list'])
         
         assert result.exit_code == 0
-        assert "Attestation Policies" in result.stdout
-        assert "k8s-agent" in result.stdout
-        assert "azure-agent" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Attestation Policies" in output
+        assert "k8s-agent" in output
+        assert "azure-agent" in output
         print("✅ Policy listing working")
     
     # Test 4: Policy validation 
@@ -120,7 +130,8 @@ def test_enhanced_policy_commands():
         ])
         
         assert result.exit_code == 0
-        assert "Found 1 matching attestation policy" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Found 1 matching attestation policy" in output
         print("✅ Policy validation working")
     
     # Test 5: Policy get details
@@ -140,8 +151,9 @@ def test_enhanced_policy_commands():
         result = runner.invoke(policy_app, ['attestation', 'get', policy_id])
         
         assert result.exit_code == 0
-        assert f"Attestation Policy ID: {policy_id}" in result.stdout
-        assert "Platform: kubernetes" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert f"Attestation Policy ID: {policy_id}" in output
+        assert "Platform: kubernetes" in output
         print("✅ Policy details working")
     
     print("\n🎉 All enhanced policy CLI commands working correctly!")

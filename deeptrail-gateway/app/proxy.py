@@ -97,12 +97,12 @@ class ProxyHandler:
             if should_stream:
                 # Handle streaming response
                 return await self._handle_streaming_response(
-                    request_id, http_client, request_info, request_body
+                    request_id, http_client, request_info, request_body, path
                 )
             else:
                 # Handle regular response
                 return await self._handle_regular_response(
-                    request_id, http_client, request_info, request_body
+                    request_id, http_client, request_info, request_body, path
                 )
                 
         except HTTPException:
@@ -150,7 +150,8 @@ class ProxyHandler:
         request_id: str,
         http_client,
         request_info,
-        request_body: Optional[bytes]
+        request_body: Optional[bytes],
+        path: str = ""
     ) -> Response:
         """
         Handle a regular (non-streaming) proxy response.
@@ -160,15 +161,20 @@ class ProxyHandler:
             http_client: HTTP client instance
             request_info: Validated request information
             request_body: Request body content
+            path: Path to append to the target URL
             
         Returns:
             Response from the target service
         """
         try:
+            # Construct the full target URL with path
+            base_url = request_info.target_url.rstrip('/')
+            full_target_url = f"{base_url}/{path}" if path else base_url
+            
             # Make the proxy request
             response = await http_client.proxy_request(
                 method=request_info.method,
-                target_url=request_info.target_url,
+                target_url=full_target_url,
                 headers=request_info.headers,
                 params=request_info.query_params,
                 content=request_body,
@@ -211,7 +217,8 @@ class ProxyHandler:
         request_id: str,
         http_client,
         request_info,
-        request_body: Optional[bytes]
+        request_body: Optional[bytes],
+        path: str = ""
     ) -> StreamingResponse:
         """
         Handle a streaming proxy response.
@@ -221,15 +228,20 @@ class ProxyHandler:
             http_client: HTTP client instance
             request_info: Validated request information
             request_body: Request body content
+            path: Path to append to the target URL
             
         Returns:
             Streaming response from the target service
         """
         try:
+            # Construct the full target URL with path
+            base_url = request_info.target_url.rstrip('/')
+            full_target_url = f"{base_url}/{path}" if path else base_url
+            
             # Make the streaming proxy request
             response = await http_client.proxy_request(
                 method=request_info.method,
-                target_url=request_info.target_url,
+                target_url=full_target_url,
                 headers=request_info.headers,
                 params=request_info.query_params,
                 content=request_body,

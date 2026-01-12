@@ -35,7 +35,7 @@ def policy_create(
         effect=effect,
     )
     console.print(f"Policy '{new_policy.name}' created with ID: {new_policy.id}")
-    console.print(new_policy.dict())
+    console.print(new_policy.model_dump())
 
 @app.command("list")
 @handle_api_error
@@ -77,7 +77,7 @@ def policy_get(
     Get details for a specific policy.
     """
     p = policy_client.get(policy_id)
-    console.print(p.dict())
+    console.print(p.model_dump())
 
 @app.command("delete")
 @handle_api_error

@@ -1,9 +1,17 @@
 import pytest
+import re
 from typer.testing import CliRunner
 from unittest.mock import MagicMock, patch
 
 from deepsecure.main import app
 from deepsecure._core.schemas import PolicyResponse
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
+
 
 runner = CliRunner()
 
@@ -36,7 +44,8 @@ def test_policy_create_success(mock_policy_client: MagicMock):
         ],
     )
     assert result.exit_code == 0
-    assert "Policy 'test-policy' created with ID: policy-123" in result.stdout
+    output = strip_ansi(result.stdout)
+    assert "Policy 'test-policy' created with ID: policy-123" in output
     mock_policy_client.create.assert_called_once()
 
 def test_policy_list_success(mock_policy_client: MagicMock):
@@ -62,9 +71,10 @@ def test_policy_list_success(mock_policy_client: MagicMock):
 
     result = runner.invoke(app, ["policy", "list"])
     assert result.exit_code == 0
-    assert "policy-123" in result.stdout
-    assert "test-policy-2" in result.stdout
-    assert "agent-def" in result.stdout
+    output = strip_ansi(result.stdout)
+    assert "policy-123" in output
+    assert "test-policy-2" in output
+    assert "agent-def" in output
     mock_policy_client.list.assert_called_once()
 
 def test_policy_list_empty(mock_policy_client: MagicMock):
@@ -72,7 +82,8 @@ def test_policy_list_empty(mock_policy_client: MagicMock):
     mock_policy_client.list.return_value = []
     result = runner.invoke(app, ["policy", "list"])
     assert result.exit_code == 0
-    assert "No policies found" in result.stdout
+    output = strip_ansi(result.stdout)
+    assert "No policies found" in output
 
 def test_policy_get_success(mock_policy_client: MagicMock):
     """Test successfully getting a single policy."""
@@ -86,7 +97,8 @@ def test_policy_get_success(mock_policy_client: MagicMock):
     )
     result = runner.invoke(app, ["policy", "get", "policy-123"])
     assert result.exit_code == 0
-    assert "'id': 'policy-123'" in result.stdout
+    output = strip_ansi(result.stdout)
+    assert "'id': 'policy-123'" in output
     mock_policy_client.get.assert_called_once_with("policy-123")
 
 def test_policy_delete_success(mock_policy_client: MagicMock):
@@ -94,5 +106,6 @@ def test_policy_delete_success(mock_policy_client: MagicMock):
     mock_policy_client.delete.return_value = {"message": "Policy policy-123 deleted successfully."}
     result = runner.invoke(app, ["policy", "delete", "policy-123"])
     assert result.exit_code == 0
-    assert "Policy policy-123 deleted successfully." in result.stdout
+    output = strip_ansi(result.stdout)
+    assert "Policy policy-123 deleted successfully." in output
     mock_policy_client.delete.assert_called_once_with("policy-123") 

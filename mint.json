@@ -1,0 +1,32 @@
+{
+    "$schema": "https://mintlify.com/schema.json",
+    "name": "DeepSecure SDK",
+    "logo": {
+        "dark": "/assets/deeptrail_logo.png",
+        "light": "/assets/deeptrail_logo.png"
+    },
+    "favicon": "/assets/deeptrail_logo.png",
+    "colors": {
+        "primary": "#0D9373",
+        "light": "#0D9373",
+        "dark": "#FFFFFF",
+        "background": {
+            "dark": "#0A0A0A"
+        }
+    },
+    "navigation": [
+        {
+            "group": "Getting Started",
+            "pages": [
+                "docs/introduction"
+            ]
+        },
+        {
+            "group": "API Reference",
+            "pages": [
+                "api-reference"
+            ]
+        }
+    ],
+    "openapi": "docs/openapi.yaml"
+}

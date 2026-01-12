@@ -5,7 +5,161 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.10] - 2025-01-21
+## [0.1.11] - 2026-01-11
+
+### 🚀 **MODEL-AGNOSTIC GATEWAY INTERFACE + ANTHROPIC INTEGRATION**
+**New unified gateway abstraction for seamless integration with any AI model provider**
+
+### Added
+
+#### **Model-Agnostic Gateway Client**
+- **`GatewayClient` class** (`deepsecure/integrations/gateway.py`): New unified interface for proxying requests through the DeepSecure Gateway
+  - Generic `request()` method supporting all HTTP verbs (GET, POST, PUT, DELETE, PATCH)
+  - Convenience methods: `gateway.get()`, `gateway.post()`, `gateway.put()`, `gateway.delete()`, `gateway.patch()`
+  - Auto-detection of secret names for well-known services based on `target_base_url`
+  - Support for custom APIs with explicit `secret_name` parameter
+- **`client.gateway`**: New top-level client attribute for model-agnostic API proxying
+  ```python
+  # Generic gateway access
+  resp = client.gateway.get("/v1/models", "https://api.openai.com")
+  resp = client.gateway.post("/v1/messages", "https://api.anthropic.com", json={...})
+  ```
+
+#### **Well-Known Service Auto-Detection**
+- Automatic secret name resolution for popular AI providers:
+  | Target Base URL | Auto-detected Secret |
+  |-----------------|---------------------|
+  | `https://api.openai.com` | `openai-api-key` |
+  | `https://api.anthropic.com` | `anthropic-api-key` |
+  | `https://generativelanguage.googleapis.com` | `google-ai-api-key` |
+  | `https://api.cohere.ai` | `cohere-api-key` |
+  | `https://api.mistral.ai` | `mistral-api-key` |
+  | `https://api.together.xyz` | `together-api-key` |
+  | `https://api.groq.com` | `groq-api-key` |
+
+#### **Anthropic/Claude Integration**
+- **`AnthropicIntegration` class** (`deepsecure/integrations/anthropic.py`): Full Anthropic API support
+  - `create_message()`: Create messages using Claude models (Messages API)
+  - `count_tokens()`: Count tokens before sending to manage context window
+  - `complete()`: Legacy completions API support
+  - Support for all Claude models: `claude-sonnet-4-20250514`, `claude-3-opus-20240229`, `claude-3-haiku-20240307`
+- **`client.anthropic`**: New top-level client attribute for Anthropic API access
+  ```python
+  resp = client.anthropic.create_message(
+      messages=[{"role": "user", "content": "Hello, Claude!"}],
+      model="claude-sonnet-4-20250514",
+      max_tokens=1024
+  )
+  ```
+
+#### **Design Documentation**
+- Added autonomy control proposal documentation (`docs/design/deepsecure-autonomy-control.md`)
+- Updated design documentation for new capabilities including web auth and user-agent delegation
+- Updated comparison documentation with OpenFGA
+
+### Changed
+
+#### **OpenAI Integration Refactoring**
+- **Refactored `OpenAIIntegration`** to use `GatewayClient` underneath for consistent behavior
+  - Added new convenience methods: `chat_completion()`, `create_embedding()`, `list_files()`
+  - All methods now delegate to `client.gateway` for unified request handling
+  - Cleaner, more maintainable code with shared gateway infrastructure
+
+### Fixed
+
+#### **Example Scripts**
+- **Fixed Example 13** (`examples/13_quickstart_openai_list_models.py`): 
+  - Resolved `AttributeError: 'PolicyClient' object has no attribute 'get_by_name'`
+  - Fixed authentication token handling in PolicyClient
+  - Corrected agent_id format handling for policy creation
+- **Fixed Example 14** (`examples/14_quickstart_openai_policy_enforcement.py`):
+  - Resolved `AttributeError: 'Client' object has no attribute 'gateway'`
+  - Added `client.gateway` interface with `request()` method for generic gateway access
+
+#### **PolicyClient Fixes**
+- Added missing `get_by_name()` method for policy lookup by name
+- Fixed authentication to use admin API token instead of agent JWT for policy management operations
+- Corrected agent_id format handling (strips "agent-" prefix before sending to backend)
+
+#### **Documentation Cleanup**
+- Fixed file locations and visibility issues in documentation
+- Cleaned up and organized documentation structure
+
+### Technical Details
+
+#### **New Files**
+- `deepsecure/integrations/gateway.py` - Model-agnostic GatewayClient (294 lines)
+- `deepsecure/integrations/anthropic.py` - Anthropic integration (252 lines)
+
+#### **Modified Files**
+- `deepsecure/client.py` - Added `client.gateway` and `client.anthropic` attributes
+- `deepsecure/integrations/openai.py` - Refactored to use GatewayClient
+
+### Test Summary
+
+| Metric | Value |
+|--------|-------|
+| Total Tests | 292 |
+| Passed | 270 |
+| Failed | 0 |
+| Skipped | 22 |
+| Errors | 0 |
+| Duration | 62.04 seconds |
+| Coverage | 46.85% |
+
+**Status: ✅ All tests passed** - 72 new tests added vs v0.1.10
+
+#### **Critical Tests Verified**
+- ✅ Agent authentication flow
+- ✅ Vault secret storage and retrieval
+- ✅ Policy creation and enforcement
+- ✅ Gateway request proxying
+- ✅ Delegation with split-key workflow
+- ✅ OpenAI integration
+- ✅ Anthropic integration (new)
+
+#### **New Feature Tests Added**
+- `GatewayClient` initialization and request methods
+- Generic HTTP request proxying through gateway
+- Auto-detection of secret names for known services
+- Streaming response support
+- `AnthropicIntegration` class initialization
+- `client.credentials` namespace methods
+- `client.identity_manager` property
+- `client.get_agent()` method
+
+#### **Test Infrastructure Improvements**
+- Added environment variable mocking fixtures for integration tests
+- Marked integration tests with `@pytest.mark.integration` for selective execution
+- Added `TERM` environment variable setup to fix `rich.console` errors
+- New Makefile targets: `make test-unit`, `make test-integration`, `make test-report`
+- Fixed `test_sdk_example_integration_pattern` - added missing `_skip_if_backend_unavailable()` guard
+- Added `model_dump()` method to mock Policy classes in test files (Pydantic V2 compatibility)
+- Added `strip_ansi()` helper function to handle Rich console ANSI escape codes in 6 test files
+
+#### **Deprecation Warnings Fixed (55 total warnings eliminated)**
+
+| Warning Type | Occurrences Fixed | Files Modified | Status |
+|--------------|-------------------|----------------|--------|
+| `datetime.utcnow()` deprecated | 25 | 10 | ✅ Fixed |
+| `Field(example=...)` deprecated | 18 | 3 | ✅ Fixed |
+| `sslib.shamir` missing `required_shares` | 6 | 1 | ✅ Fixed |
+| `orm_mode` deprecated | 3 | 3 | ✅ Fixed |
+| `.dict()` deprecated | 2 | 1 | ✅ Fixed |
+| **Total** | **55** | **18** | ✅ |
+
+**Files Modified:**
+- **datetime.utcnow()**: `test_policy_enforcement.py`, `test_policy_enforcement_examples.py`, `test_policy_jwt_*.py`, `test_cli_policy_*.py`, `test_policies_examples.py`, `macaroon_service.py`, `crud_nonce.py`
+- **Pydantic schemas**: `credential.py`, `agent.py`, `token.py`, `policy.py`, `nonce.py`, `attestation_policy.py`
+- **CLI commands**: `deepsecure/commands/policy.py`
+- **Test fixes**: `test_delegation_split_key_integration.py`
+
+#### **Remaining Warnings (~59)**
+Only external library warnings remain (passlib, pytest-asyncio, etc.) - these cannot be fixed directly and will resolve when those libraries are updated.
+
+Full test report: [`test-results/v0.1.11/test-report.md`](test-results/v0.1.11/test-report.md)
+
+## [0.1.10] - 2025-07-21
 
 ### 🏗️ **MAJOR ARCHITECTURAL TRANSFORMATION + CRITICAL STABILITY FIXES**
 **Complete evolution from monolithic to enterprise-grade dual-service architecture with advanced security features and comprehensive test infrastructure overhaul**

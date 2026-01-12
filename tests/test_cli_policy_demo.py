@@ -8,10 +8,17 @@ deepsecure CLI policy commands work.
 
 import pytest
 import json
+import re
 from typing import Dict, List, Any
 from unittest.mock import Mock, patch
 from typer.testing import CliRunner
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
 
 
 class SimplePolicyClient:
@@ -31,7 +38,7 @@ class SimplePolicyClient:
             'actions': actions,
             'resources': resources,
             'effect': effect,
-            'created_at': datetime.utcnow().isoformat()
+            'created_at': datetime.now(timezone.utc).isoformat()
         })
         self.policies.append(policy)
         self.next_id += 1
@@ -70,7 +77,11 @@ class SimplePolicy:
         self.created_at = data.get('created_at')
     
     def dict(self):
-        """Return policy as dictionary."""
+        """Return policy as dictionary (deprecated, use model_dump)."""
+        return self.model_dump()
+    
+    def model_dump(self):
+        """Return policy as dictionary (Pydantic v2 style)."""
         return {
             'id': self.id,
             'name': self.name,
@@ -87,7 +98,7 @@ class TestSimplePolicyCommands:
     
     def setup_method(self):
         from deepsecure.commands.policy import app as policy_app
-        self.runner = CliRunner()
+        self.runner = CliRunner(mix_stderr=False)
         self.mock_client = SimplePolicyClient()
         
         # Patch the policy client 
@@ -114,7 +125,8 @@ class TestSimplePolicyCommands:
         
         # Check command succeeded
         assert result.exit_code == 0
-        assert "Policy 'demo-web-policy' created with ID: policy-0001" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Policy 'demo-web-policy' created with ID: policy-0001" in output
         
         # Verify policy was created correctly
         policies = self.mock_client.list()
@@ -166,13 +178,14 @@ class TestSimplePolicyCommands:
         result = self.runner.invoke(self.policy_app, ['list'])
         
         assert result.exit_code == 0
-        assert "Policies" in result.stdout  # Table title
-        assert "web-access" in result.stdout  # Truncated in table display 
-        assert "database-p" in result.stdout  # Truncated in table display
-        assert "agent-web-" in result.stdout  # This shows as agent-web-…
-        assert "agent-db-4" in result.stdout   # This shows as agent-db-4…
-        assert "read:web" in result.stdout
-        assert "read:datab" in result.stdout  # Truncated version of "read:database, write:database"
+        output = strip_ansi(result.stdout)
+        assert "Policies" in output  # Table title
+        assert "web-access" in output  # Truncated in table display 
+        assert "database-p" in output  # Truncated in table display
+        assert "agent-web-" in output  # This shows as agent-web-…
+        assert "agent-db-4" in output   # This shows as agent-db-4…
+        assert "read:web" in output
+        assert "read:datab" in output  # Truncated version of "read:database, write:database"
     
     def test_get_policy_details(self):
         """Test getting policy details via CLI."""
@@ -187,12 +200,13 @@ class TestSimplePolicyCommands:
         result = self.runner.invoke(self.policy_app, ['get', policy.id])
         
         assert result.exit_code == 0
-        assert policy.id in result.stdout
-        assert 'detail-test-policy' in result.stdout
-        assert 'agent-detail-789' in result.stdout
-        assert 'read:web' in result.stdout
-        assert 'write:api' in result.stdout
-        assert 'https://api.example.com' in result.stdout
+        output = strip_ansi(result.stdout)
+        assert policy.id in output
+        assert 'detail-test-policy' in output
+        assert 'agent-detail-789' in output
+        assert 'read:web' in output
+        assert 'write:api' in output
+        assert 'https://api.example.com' in output
     
     def test_delete_policy(self):
         """Test deleting a policy via CLI."""
@@ -211,7 +225,8 @@ class TestSimplePolicyCommands:
         result = self.runner.invoke(self.policy_app, ['delete', policy.id])
         
         assert result.exit_code == 0
-        assert f"Policy {policy.id} deleted successfully" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert f"Policy {policy.id} deleted successfully" in output
         
         # Verify policy is gone
         assert len(self.mock_client.list()) == 0

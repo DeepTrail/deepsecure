@@ -9,14 +9,14 @@ class PolicyBase(BaseModel):
     effect: str = "allow"
     actions: Optional[List[str]] = None
     resources: Optional[List[str]] = None
-    agent_id: Optional[uuid.UUID] = None
+    agent_id: Optional[str] = None  # String to match agents.agent_id format
 
 # Properties to receive on item creation
 class PolicyCreate(PolicyBase):
     name: str
     actions: List[str]
     resources: List[str]
-    agent_id: uuid.UUID
+    agent_id: str  # String format: either "agent-uuid" or just "uuid"
 
 # Properties to receive on item update
 class PolicyUpdate(PolicyBase):
@@ -26,12 +26,12 @@ class PolicyUpdate(PolicyBase):
 class PolicyInDBBase(PolicyBase):
     id: uuid.UUID
     name: str
-    agent_id: uuid.UUID
+    agent_id: str  # String format to match agents.agent_id
     actions: List[str]
     resources: List[str]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Properties to return to client
 class Policy(PolicyInDBBase):

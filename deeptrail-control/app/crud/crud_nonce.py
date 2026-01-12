@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .base import CRUDBase
 from app.models.nonce import Nonce
@@ -14,7 +14,7 @@ class CRUDNonce(CRUDBase[Nonce, NonceCreate, NonceUpdate]):
         nonce_obj = Nonce(
             agent_id=agent_id,
             nonce=uuid.uuid4().hex,
-            expires_at=datetime.utcnow() + timedelta(minutes=5)
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5)
         )
         db.add(nonce_obj)
         db.commit()
@@ -25,7 +25,7 @@ class CRUDNonce(CRUDBase[Nonce, NonceCreate, NonceUpdate]):
         """
         Retrieves a nonce if it's valid and unexpired, then deletes it to prevent reuse.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         nonce_obj = db.query(Nonce).filter(
             Nonce.nonce == nonce,
             Nonce.agent_id == agent_id,

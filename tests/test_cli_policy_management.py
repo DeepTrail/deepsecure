@@ -20,6 +20,7 @@ the DeepSecure policy system.
 
 import pytest
 import json
+import re
 import tempfile
 import os
 from pathlib import Path
@@ -27,7 +28,13 @@ from typing import Dict, List, Any, Optional
 from unittest.mock import Mock, patch, MagicMock
 from typer.testing import CliRunner
 import typer
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
 
 # Import the CLI modules we're testing
 from deepsecure.commands.policy import app as policy_app
@@ -56,7 +63,7 @@ class MockPolicyClient:
             'actions': actions,
             'resources': resources,
             'effect': effect,
-            'created_at': datetime.utcnow().isoformat(),
+            'created_at': datetime.now(timezone.utc).isoformat(),
             'version': '1.0'
         })
         
@@ -90,7 +97,7 @@ class MockPolicyClient:
             'platform': policy_data.get('platform'),
             'agent_name': policy_data.get('agent_name'),
             'description': policy_data.get('description'),
-            'created_at': datetime.utcnow().isoformat(),
+            'created_at': datetime.now(timezone.utc).isoformat(),
             **policy_data
         }
         
@@ -112,7 +119,11 @@ class MockPolicy:
         self.version = data.get('version', '1.0')
     
     def dict(self):
-        """Return policy as dictionary."""
+        """Return policy as dictionary (deprecated, use model_dump)."""
+        return self.model_dump()
+    
+    def model_dump(self):
+        """Return policy as dictionary (Pydantic v2 style)."""
         return {
             'id': self.id,
             'name': self.name,
@@ -152,7 +163,8 @@ class TestPolicyCreateCommand:
         ])
         
         assert result.exit_code == 0
-        assert "Policy 'test-policy' created with ID: policy-0001" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Policy 'test-policy' created with ID: policy-0001" in output
         
         # Verify policy was created
         policies = self.mock_client.list()
@@ -176,7 +188,8 @@ class TestPolicyCreateCommand:
         ])
         
         assert result.exit_code == 0
-        assert "Policy 'detailed-policy' created" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Policy 'detailed-policy' created" in output
     
     def test_create_deny_policy(self):
         """Test creating a policy with deny effect."""
@@ -271,13 +284,14 @@ class TestPolicyListCommand:
         result = self.runner.invoke(policy_app, ['list'])
         
         assert result.exit_code == 0
-        assert "Policies" in result.stdout
-        assert "web-policy" in result.stdout
-        assert "database-p" in result.stdout  # Rich table truncates to database-p…
-        assert "admin-deny" in result.stdout  # Rich table truncates to admin-deny…
-        assert "agent-web-" in result.stdout  # Rich table truncates to agent-web-…
-        assert "read:web" in result.stdout
-        assert "deny" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Policies" in output
+        assert "web-policy" in output
+        assert "database-p" in output  # Rich table truncates to database-p…
+        assert "admin-deny" in output  # Rich table truncates to admin-deny…
+        assert "agent-web-" in output  # Rich table truncates to agent-web-…
+        assert "read:web" in output
+        assert "deny" in output
     
     def test_list_policies_empty(self):
         """Test listing policies when none exist."""
@@ -287,25 +301,27 @@ class TestPolicyListCommand:
             result = self.runner.invoke(policy_app, ['list'])
             
             assert result.exit_code == 0
-            assert "No policies found" in result.stdout
+            output = strip_ansi(result.stdout)
+            assert "No policies found" in output
     
     def test_list_policies_shows_all_fields(self):
         """Test that policy listing shows all important fields."""
         result = self.runner.invoke(policy_app, ['list'])
         
         assert result.exit_code == 0
+        output = strip_ansi(result.stdout)
         
         # Check table headers are present
-        assert "ID" in result.stdout
-        assert "Name" in result.stdout  
-        assert "Agent ID" in result.stdout
-        assert "Effect" in result.stdout
-        assert "Actions" in result.stdout
-        assert "Resources" in result.stdout
+        assert "ID" in output
+        assert "Name" in output  
+        assert "Agent ID" in output
+        assert "Effect" in output
+        assert "Actions" in output
+        assert "Resources" in output
         
         # Check that multiple actions/resources are displayed (Rich table shows them on separate lines with truncation)
-        assert "read:datab" in result.stdout  # Rich table truncates to read:datab…
-        assert "write:data" in result.stdout  # Rich table truncates to write:data…
+        assert "read:datab" in output  # Rich table truncates to read:datab…
+        assert "write:data" in output  # Rich table truncates to write:data…
 
 
 class TestPolicyGetCommand:
@@ -334,14 +350,15 @@ class TestPolicyGetCommand:
         result = self.runner.invoke(policy_app, ['get', self.test_policy.id])
         
         assert result.exit_code == 0
+        output = strip_ansi(result.stdout)
         
         # Should contain policy details in dict format
-        assert self.test_policy.id in result.stdout
-        assert 'test-policy' in result.stdout
-        assert 'agent-test-123' in result.stdout
-        assert 'read:web' in result.stdout
-        assert 'write:api' in result.stdout
-        assert 'https://api.example.com' in result.stdout
+        assert self.test_policy.id in output
+        assert 'test-policy' in output
+        assert 'agent-test-123' in output
+        assert 'read:web' in output
+        assert 'write:api' in output
+        assert 'https://api.example.com' in output
     
     def test_get_nonexistent_policy(self):
         """Test getting details for a non-existent policy."""
@@ -354,9 +371,9 @@ class TestPolicyGetCommand:
         result = self.runner.invoke(policy_app, ['get', self.test_policy.id])
         
         assert result.exit_code == 0
+        output = strip_ansi(result.stdout)
         
         # Verify all important fields are shown
-        output = result.stdout
         assert 'id' in output.lower()
         assert 'name' in output.lower()
         assert 'agent_id' in output.lower()
@@ -400,7 +417,8 @@ class TestPolicyDeleteCommand:
         result = self.runner.invoke(policy_app, ['delete', self.policy1.id])
         
         assert result.exit_code == 0
-        assert f"Policy {self.policy1.id} deleted successfully" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert f"Policy {self.policy1.id} deleted successfully" in output
         
         # Verify policy was deleted
         remaining_policies = self.mock_client.list()
@@ -418,7 +436,8 @@ class TestPolicyDeleteCommand:
         result = self.runner.invoke(policy_app, ['delete', self.policy1.id])
         
         assert result.exit_code == 0
-        assert "deleted successfully" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "deleted successfully" in output
 
 
 class TestAttestationPolicyCommands:
@@ -444,7 +463,8 @@ class TestAttestationPolicyCommands:
         ])
         
         assert result.exit_code == 0
-        assert "Kubernetes attestation policy created successfully" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Kubernetes attestation policy created successfully" in output
         
         # Verify policy was created
         assert len(self.mock_client.attestation_policies) == 1
@@ -700,32 +720,36 @@ class TestPolicyCliUsability:
         # Test main policy help
         result = self.runner.invoke(policy_app, ['--help'])
         assert result.exit_code == 0
-        assert "Manage policies for agents" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Manage policies for agents" in output
         
         # Test create command help
         result = self.runner.invoke(policy_app, ['create', '--help'])
         assert result.exit_code == 0
-        assert "Create a new policy" in result.stdout
-        assert "--name" in result.stdout
-        assert "--agent-id" in result.stdout
-        assert "--action" in result.stdout
-        assert "--resource" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Create a new policy" in output
+        assert "--name" in output
+        assert "--agent-id" in output
+        assert "--action" in output
+        assert "--resource" in output
         
         # Test attestation help
         result = self.runner.invoke(policy_app, ['attestation', '--help'])
         assert result.exit_code == 0
-        assert "Manage attestation policies" in result.stdout
+        output = strip_ansi(result.stdout)
+        assert "Manage attestation policies" in output
     
     def test_command_discoverability(self):
         """Test that all commands are discoverable via help."""
         result = self.runner.invoke(policy_app, ['--help'])
         
         assert result.exit_code == 0
-        assert 'create' in result.stdout
-        assert 'list' in result.stdout
-        assert 'get' in result.stdout
-        assert 'delete' in result.stdout
-        assert 'attestation' in result.stdout
+        output = strip_ansi(result.stdout)
+        assert 'create' in output
+        assert 'list' in output
+        assert 'get' in output
+        assert 'delete' in output
+        assert 'attestation' in output
     
     def test_output_formatting(self):
         """Test that output is well-formatted and readable."""
@@ -740,15 +764,16 @@ class TestPolicyCliUsability:
         # Test list output formatting
         result = self.runner.invoke(policy_app, ['list'])
         assert result.exit_code == 0
+        output = strip_ansi(result.stdout)
         
         # Should have table structure
-        lines = result.stdout.split('\n')
+        lines = output.split('\n')
         # Should have multiple lines for table formatting
         assert len(lines) > 3
         
         # Should contain our test data (Rich table truncates long names)
-        assert 'formatting' in result.stdout  # Rich table truncates to formatting…
-        assert 'agent-form' in result.stdout  # Rich table truncates to agent-form…
+        assert 'formatting' in output  # Rich table truncates to formatting…
+        assert 'agent-form' in output  # Rich table truncates to agent-form…
 
 
 def test_phase3_task_3_5_cli_summary():
