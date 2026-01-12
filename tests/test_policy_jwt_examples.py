@@ -19,7 +19,7 @@ import uuid
 import json
 import time
 from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import jwt as jose_jwt
 
 
@@ -72,7 +72,7 @@ class MockPolicyJWTIntegration:
             raise ValueError(f"Agent {agent_id} not found")
         
         # Get current time
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Aggregate policies for agent
         policy_claims = self.aggregate_policies_for_agent(agent_id)

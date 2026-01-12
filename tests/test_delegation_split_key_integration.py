@@ -361,6 +361,7 @@ class TestPhase4EndToEndIntegration:
             ]
             
             reconstruction_data = {
+                'required_shares': 2,
                 'shares': shares_for_reconstruction,
                 'prime_mod': secret_metadata["prime_mod"]
             }
@@ -648,6 +649,7 @@ class TestPhase4PerformanceAnalysis:
                 
                 # Reconstruct secret
                 reconstruction_data = {
+                    'required_shares': 2,
                     'shares': [(shares_list[0][0], shares_list[0][1]), 
                               (shares_list[1][0], decrypted_share)],
                     'prime_mod': shares_dict.get('prime_mod')
@@ -781,6 +783,7 @@ class TestPhase4PerformanceAnalysis:
                     decrypted_share = fernet.decrypt(encrypted_data)
                     
                     reconstruction_data = {
+                        'required_shares': 2,
                         'shares': [(shares_list[0][0], shares_list[0][1]), 
                                   (shares_list[1][0], decrypted_share)],
                         'prime_mod': shares_dict.get('prime_mod')
@@ -948,6 +951,7 @@ class TestPhase4SecurityValidation:
             
             # Test reconstruction with original shares
             reconstruction_data = {
+                'required_shares': 2,
                 'shares': [(shares_list[0][0], original_share_1), 
                           (shares_list[1][0], original_share_2)],
                 'prime_mod': shares_dict.get('prime_mod')
@@ -962,6 +966,7 @@ class TestPhase4SecurityValidation:
             tampered_share_1 = bytes(tampered_share_1)
             
             reconstruction_data_tampered = {
+                'required_shares': 2,
                 'shares': [(shares_list[0][0], tampered_share_1), 
                           (shares_list[1][0], original_share_2)],
                 'prime_mod': shares_dict.get('prime_mod')
@@ -1127,6 +1132,7 @@ class TestPhase4SecurityValidation:
             try:
                 # This should fail - you can't reconstruct with insufficient shares
                 reconstruction_data = {
+                    'required_shares': 2,
                     'shares': [single_share],
                     'prime_mod': shares_dict.get('prime_mod')
                 }
@@ -1378,6 +1384,7 @@ class TestPhase4BackwardsCompatibility:
             decrypted_share_2 = fernet.decrypt(retrieved_encrypted)
             
             reconstruction_data = {
+                'required_shares': 2,
                 'shares': [
                     (migrated_secret['split_metadata']['share_indices'][0], migrated_secret['control_plane_share']),
                     (migrated_secret['split_metadata']['share_indices'][1], decrypted_share_2)

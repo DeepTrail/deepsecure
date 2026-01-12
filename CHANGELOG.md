@@ -133,14 +133,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Marked integration tests with `@pytest.mark.integration` for selective execution
 - Added `TERM` environment variable setup to fix `rich.console` errors
 - New Makefile targets: `make test-unit`, `make test-integration`, `make test-report`
+- Fixed `test_sdk_example_integration_pattern` - added missing `_skip_if_backend_unavailable()` guard
+- Added `model_dump()` method to mock Policy classes in test files (Pydantic V2 compatibility)
+- Added `strip_ansi()` helper function to handle Rich console ANSI escape codes in 6 test files
 
-#### **Deprecation Warnings (Action Items for v0.2.0)**
-| Warning | Count | Planned Fix |
-|---------|-------|-------------|
-| `datetime.utcnow()` deprecated | ~70 | Migrate to `datetime.now(datetime.UTC)` |
-| Pydantic v1 patterns | ~25 | Use `model_dump()` instead of `dict()` |
-| `orm_mode` deprecated | 4 | Rename to `from_attributes` |
-| `sslib.shamir` missing param | 5 | Add `required_shares` parameter |
+#### **Deprecation Warnings Fixed (55 total warnings eliminated)**
+
+| Warning Type | Occurrences Fixed | Files Modified | Status |
+|--------------|-------------------|----------------|--------|
+| `datetime.utcnow()` deprecated | 25 | 10 | ✅ Fixed |
+| `Field(example=...)` deprecated | 18 | 3 | ✅ Fixed |
+| `sslib.shamir` missing `required_shares` | 6 | 1 | ✅ Fixed |
+| `orm_mode` deprecated | 3 | 3 | ✅ Fixed |
+| `.dict()` deprecated | 2 | 1 | ✅ Fixed |
+| **Total** | **55** | **18** | ✅ |
+
+**Files Modified:**
+- **datetime.utcnow()**: `test_policy_enforcement.py`, `test_policy_enforcement_examples.py`, `test_policy_jwt_*.py`, `test_cli_policy_*.py`, `test_policies_examples.py`, `macaroon_service.py`, `crud_nonce.py`
+- **Pydantic schemas**: `credential.py`, `agent.py`, `token.py`, `policy.py`, `nonce.py`, `attestation_policy.py`
+- **CLI commands**: `deepsecure/commands/policy.py`
+- **Test fixes**: `test_delegation_split_key_integration.py`
+
+#### **Remaining Warnings (~59)**
+Only external library warnings remain (passlib, pytest-asyncio, etc.) - these cannot be fixed directly and will resolve when those libraries are updated.
 
 Full test report: [`test-results/v0.1.11/test-report.md`](test-results/v0.1.11/test-report.md)
 

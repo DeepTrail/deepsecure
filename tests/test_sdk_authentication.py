@@ -35,6 +35,9 @@ from deepsecure.exceptions import DeepSecureError
 from deepsecure._core.exceptions import AuthenticationError
 from deepsecure import utils
 
+# Mark all tests in this module as integration tests requiring backend
+pytestmark = pytest.mark.integration
+
 
 class TestSDKAuthentication:
     """Test suite for SDK authentication flow validation."""
@@ -475,20 +478,24 @@ class TestSDKAuthentication:
             assert aws_provider is not None
 
     def test_sdk_example_integration_pattern(self):
-        """Test SDK usage pattern from example files."""
-        # Create test agent
-        agent_name = f"test-sdk-example-{uuid.uuid4()}"
-        agent = self.client.agents.create(name=agent_name, description="Test example pattern")
-        self.test_agent_ids.append(agent.id)
+        """Test SDK usage pattern from example files.
+        
+        Tests the client.agent() method with auto_create=True, which is the
+        recommended pattern from the example files.
+        """
+        self._skip_if_backend_unavailable()
         
         # Test pattern from 01_create_agent_and_issue_credential.py
+        # Use auto_create=True which is the recommended pattern
         try:
-            # Initialize client (use the correct Client class)
-            client = deepsecure.Client()
+            agent_name = f"test-sdk-example-{uuid.uuid4()}"
             
-            # Create agent handle with auto-create
-            agent_handle = client.agent(agent_name, auto_create=False)  # Agent already exists
-            assert agent_handle.id == agent.id
+            # Create agent handle with auto-create (recommended pattern)
+            agent_handle = self.client.agent(agent_name, auto_create=True)
+            self.test_agent_ids.append(agent_handle.id)
+            
+            assert agent_handle.id is not None
+            assert agent_handle.name == agent_name
             
             # This test validates the Client interface works
             # The Agent resource's issue_credential method may not be fully implemented

@@ -1,5 +1,6 @@
 # tests/commands/test_agent.py
 import pytest
+import re
 from unittest.mock import patch, MagicMock
 from typer.testing import CliRunner
 from respx import MockRouter
@@ -8,6 +9,13 @@ import httpx
 from deepsecure.main import app
 from deepsecure.exceptions import DeepSecureError
 from deepsecure.client import Agent
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
+
 
 runner = CliRunner()
 
@@ -45,8 +53,9 @@ def test_agent_create_success(runner: CliRunner):
         result = runner.invoke(app, ["agent", "create", "--name", agent_name])
     
     assert result.exit_code == 0
-    assert f"Agent '{agent_name}' created successfully." in result.stdout
-    assert f"Agent ID: {mock_agent_id}" in result.stdout
+    output = strip_ansi(result.stdout)
+    assert f"Agent '{agent_name}' created successfully." in output
+    assert f"Agent ID: {mock_agent_id}" in output
     
     # Verify the SDK was called correctly  
     mock_agents_resource.create.assert_called_once_with(name=agent_name, description=None)

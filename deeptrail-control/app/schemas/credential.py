@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 class CredentialBase(BaseModel):
     """Shared base properties for credentials."""
-    agent_id: str = Field(..., example="agent_f3b4c1a9")
-    scope: Optional[str] = Field(None, example="read:secrets:prod/app1")
+    agent_id: str = Field(..., json_schema_extra={"example": "agent_f3b4c1a9"})
+    scope: Optional[str] = Field(None, json_schema_extra={"example": "read:secrets:prod/app1"})
 
 # --- Issue Credential --- #
 
@@ -28,8 +28,8 @@ class CredentialIssueRequest(CredentialBase):
     """
     ephemeral_public_key: bytes
     signature: bytes
-    ttl: int = Field(..., gt=0, description="Requested Time-To-Live for the credential in seconds.", example=3600)
-    origin_context: Optional[Dict[str, Any]] = Field(None, description="Optional context about the request origin.", example={"hostname": "agent-host-1", "ip": "192.168.1.100"})
+    ttl: int = Field(..., gt=0, description="Requested Time-To-Live for the credential in seconds.", json_schema_extra={"example": 3600})
+    origin_context: Optional[Dict[str, Any]] = Field(None, description="Optional context about the request origin.", json_schema_extra={"example": {"hostname": "agent-host-1", "ip": "192.168.1.100"}})
 
     @field_validator('ephemeral_public_key', 'signature', mode='before')
     @classmethod
@@ -60,7 +60,7 @@ class CredentialIssueRequest(CredentialBase):
 
 class CredentialIssueResponse(CredentialBase):
     """Schema for the response after successfully issuing a credential."""
-    credential_id: str = Field(..., example=str(uuid.uuid4()))
+    credential_id: str = Field(..., json_schema_extra={"example": str(uuid.uuid4())})
     ephemeral_public_key: str = Field(..., description="Base64 encoded Ed25519 public key from the agent.")
     issued_at: datetime
     expires_at: datetime
@@ -86,7 +86,7 @@ class CredentialVerifyResponse(CredentialBase):
     """Schema for the response when verifying a credential."""
     credential_id: str
     is_valid: bool
-    status: str = Field(..., example="valid | expired | revoked | not_found")
+    status: str = Field(..., json_schema_extra={"example": "valid | expired | revoked | not_found"})
     scope: Optional[str] = None
     agent_id: Optional[str] = None
     issued_at: Optional[datetime] = None
@@ -111,7 +111,7 @@ class CredentialVerifyResponse(CredentialBase):
 class CredentialRevokeResponse(BaseModel):
     """Schema for the response after revoking a credential."""
     credential_id: str
-    status: str = Field(..., example="revoked | already_revoked | not_found")
+    status: str = Field(..., json_schema_extra={"example": "revoked | already_revoked | not_found"})
 
 # --- General Credential Representation --- #
 
