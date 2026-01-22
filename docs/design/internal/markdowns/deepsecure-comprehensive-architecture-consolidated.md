@@ -395,6 +395,28 @@ While the agent connects to the Gateway using MCP protocol, the Gateway then nee
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### 2.1 MCP Authorization Spec Compliance Requirements
+
+Per the [MCP Authorization Specification (2025-06-18)](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization), the Gateway MUST implement:
+
+| Requirement | RFC | Implementation |
+|-------------|-----|----------------|
+| **Protected Resource Metadata** | RFC 9728 | Gateway exposes `/.well-known/oauth-protected-resource` |
+| **Authorization Server Discovery** | RFC 8414 | Gateway discovers backend auth server endpoints |
+| **Resource Indicators** | RFC 8707 | `resource` parameter in all token requests |
+| **Dynamic Client Registration** | RFC 7591 | Auto-register Gateway with backends |
+| **PKCE** | OAuth 2.1 | Required for all OAuth flows |
+
+**Critical Security Requirements**:
+
+1. **WWW-Authenticate Header**: Gateway MUST include `WWW-Authenticate` header when returning HTTP 401, pointing to Protected Resource Metadata URL per RFC 9728.
+
+2. **Token Passthrough Forbidden**: Gateway MUST NOT forward the agent's token to backend MCP servers. Gateway acts as an OAuth client to backends using exchanged tokens only.
+
+3. **Authorization Per Request**: Authorization header MUST be included in every HTTP request from agent to Gateway, even within the same logical session.
+
+4. **Canonical Resource URI**: The `resource` parameter MUST be the canonical URI of the target MCP server (e.g., `https://mcp.hubspot.com`), without fragments.
+
 ### 2.2 Technical Challenges for Virtual MCP Server OAuth Integration
 
 The Virtual MCP Server design must address these OAuth-related challenges when connecting to backend MCP servers:
@@ -2801,6 +2823,14 @@ class RedisSessionStore:
 | **Invalid Origin header** | 403 Forbidden | Request rejected (DNS rebinding protection) |
 | **SSE stream disconnected** | N/A | Client reconnects with `Last-Event-ID` header |
 
+**Authorization Error Status Codes (MCP Authorization Spec)**:
+
+| Failure Scenario | HTTP Status | Response Requirements |
+|-----------------|-------------|----------------------|
+| **Missing/invalid Authorization header** | 401 Unauthorized | MUST include `WWW-Authenticate` header with metadata URL |
+| **Valid token, insufficient permissions** | 403 Forbidden | Clear error message, no metadata hint |
+| **Malformed authorization request** | 400 Bad Request | Descriptive error body |
+
 **The Fail-Closed Principle (Non-Negotiable for Security)**:
 
 ```python
@@ -3235,6 +3265,79 @@ CRM data, how does the agent obtain that consent?
 | **Delegation Service** | Issue/validate/revoke delegation tokens (macaroons) |
 | **Gateway** | Map delegation token → user credentials → backend auth |
 
+### 22.3 MCP Authorization Compliance Details
+
+Beyond the delegation-based consent model, the Gateway must implement these [MCP Authorization Spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) requirements:
+
+#### 22.3.1 WWW-Authenticate Response Header
+
+When returning HTTP 401, include the Protected Resource Metadata location per RFC 9728:
+
+```python
+@app.exception_handler(UnauthorizedError)
+async def unauthorized_handler(request: Request, exc: UnauthorizedError):
+    return Response(
+        status_code=401,
+        headers={
+            "WWW-Authenticate": f'Bearer resource_metadata="{GATEWAY_METADATA_URL}"'
+        },
+        content={"error": "unauthorized", "message": str(exc)}
+    )
+```
+
+#### 22.3.2 Token Passthrough Prevention
+
+**Security Requirement**: The Gateway MUST NOT pass through the token it received from the MCP client to backend services. This is explicitly forbidden by the MCP Authorization Spec.
+
+```python
+async def call_backend(self, agent_token: str, backend_url: str, ...):
+    # WRONG: Passing agent's token to backend (FORBIDDEN)
+    # headers = {"Authorization": f"Bearer {agent_token}"}
+    
+    # CORRECT: Exchange for backend-specific token
+    backend_token = await self.token_exchange_service.exchange(
+        subject_token=agent_token,
+        resource=backend_url  # RFC 8707 resource indicator
+    )
+    headers = {"Authorization": f"Bearer {backend_token}"}
+```
+
+#### 22.3.3 Resource Parameter Requirements
+
+Per [RFC 8707](https://www.rfc-editor.org/rfc/rfc8707), the `resource` parameter:
+- MUST be included in authorization and token requests
+- MUST be the canonical URI of the target MCP server
+- MUST NOT contain fragments
+
+**Valid examples**:
+- `https://mcp.hubspot.com`
+- `https://mcp.notion.so/v1`
+
+**Invalid examples**:
+- `mcp.hubspot.com` (missing scheme)
+- `https://mcp.hubspot.com#section` (contains fragment)
+
+#### 22.3.4 Authorization Server Discovery
+
+Per [RFC 8414](https://www.rfc-editor.org/rfc/rfc8414), the Gateway MUST:
+
+1. Discover backend authorization server metadata via `/.well-known/oauth-authorization-server`
+2. Use discovered endpoints for token requests
+3. Cache metadata with appropriate TTL
+
+```python
+async def discover_auth_server(self, backend_url: str) -> AuthServerMetadata:
+    """Discover OAuth authorization server per RFC 8414."""
+    metadata_url = f"{backend_url}/.well-known/oauth-authorization-server"
+    response = await self.http_client.get(metadata_url)
+    return AuthServerMetadata(
+        issuer=response["issuer"],
+        authorization_endpoint=response["authorization_endpoint"],
+        token_endpoint=response["token_endpoint"],
+        # ... other endpoints
+    )
+```
+
 ---
 
 ## 23. Open Problems (Future)
@@ -3350,4 +3453,4 @@ The recommended approach is to implement **both layers**:
 
 ---
 
-*Document Version: 5.1 (Consolidated) | Last Updated: January 2026 | Updated with MCP Spec 2025-06-18 compliance requirements*
+*Document Version: 5.2 (Consolidated) | Last Updated: January 2026 | Added MCP Authorization Spec compliance (RFC 8414, WWW-Authenticate, token passthrough prevention)*

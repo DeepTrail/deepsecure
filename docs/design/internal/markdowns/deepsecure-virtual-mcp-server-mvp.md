@@ -60,6 +60,20 @@ We use **Sarah** (employee at Acme Corp) as our persona to walk through every ar
 | Session storage | In-memory | Redis |
 | Token exchange | Simulated/Static keys | Keycloak RFC 8693 |
 
+### 1.4 OAuth Compliance (MCP Authorization Spec)
+
+Per the [MCP Authorization Specification (2025-06-18)](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization):
+
+| Spec Requirement | MVP Status | Production Status |
+|------------------|------------|-------------------|
+| **PKCE** | ✅ Required | ✅ Required |
+| **Resource Parameter (RFC 8707)** | ⏳ Static config | ✅ Dynamic |
+| **WWW-Authenticate Header** | ⏳ Simplified | ✅ Full RFC 9728 |
+| **Token Passthrough Prevention** | ✅ Required | ✅ Required |
+| **Authorization Server Discovery (RFC 8414)** | ⏳ Static config | ✅ Full discovery |
+
+**Critical MVP Security Requirement**: Gateway MUST NOT forward agent tokens to backends. Even in MVP, token exchange (or static backend tokens) is required.
+
 ---
 
 ## 2. Sarah's Journey: Phase 1 (Notion + Slack)
@@ -723,6 +737,8 @@ Audit shows full chain of reasoning across all three services.
 | **Agent Session (simplified)** | ✅ Required | Store delegated permissions |
 | **Delegation Token** | ✅ Required | Bind user → agent permissions |
 | **Token Exchange (RFC 8693)** | ⏳ Simplified | Use static OAuth tokens in MVP |
+| **PKCE for OAuth Flows** | ✅ Required | MCP clients MUST implement per spec |
+| **Token Passthrough Prevention** | ✅ Required | Never forward agent tokens to backends |
 | **Circuit Breakers** | ⏳ Post-MVP | Simple fail-fast acceptable |
 | **Redis Session Store** | ⏳ Post-MVP | In-memory acceptable |
 | **Bloom Filter Optimization** | ⏳ Post-MVP | Linear search acceptable for <20 tools |
@@ -967,4 +983,4 @@ This MVP demonstrates the **core value proposition** of the Virtual MCP Server p
 
 ---
 
-*Document Version: 1.0 | Last Updated: January 2026*
+*Document Version: 1.1 | Last Updated: January 2026 | Added MCP Authorization Spec compliance (PKCE, token passthrough prevention)*

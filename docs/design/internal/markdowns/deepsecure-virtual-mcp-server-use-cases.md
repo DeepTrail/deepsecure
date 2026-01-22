@@ -230,6 +230,8 @@ An AI agent vendor (e.g., a sales automation startup, customer support AI compan
 
 5. **Automatic Revocation**: When the delegating user's permissions change (offboarding, role change), dependent delegations are automatically invalidated.
 
+6. **No Token Passthrough**: Gateway never forwards agent tokens to backends. Agent tokens are exchanged for backend-specific OAuth tokens per [MCP Authorization Spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization). This prevents confused deputy attacks.
+
 ---
 
 ## Use Case 2: Enterprise Securely Onboarding AI Agents for Employees
@@ -802,3 +804,4 @@ An enterprise platform team has built a new MCP server exposing internal capabil
 |---------|------|--------|---------|
 | 0.1 | January 2026 | — | Initial draft with three use cases |
 | 0.2 | January 2026 | — | Added transport considerations; updated registration example to recommend Streamable HTTP |
+| 0.3 | January 2026 | — | Added token passthrough prohibition security property per MCP Authorization Spec |
