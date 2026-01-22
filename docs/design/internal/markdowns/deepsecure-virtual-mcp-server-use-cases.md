@@ -16,6 +16,23 @@ This document outlines three primary use cases for the Virtual MCP Server patter
 | **Agent Onboarding** | Enterprise IT + Employees | Control, delegation, accountability, revocation | IdP integration + organization registry + scoped delegation + emergency controls |
 | **MCP Server Rollout** | Enterprise Platform Team | Safe exposure, policy testing, anomaly detection | Registry + sandbox + policy enforcement + circuit breakers |
 
+### Transport Considerations
+
+The Virtual MCP Server pattern supports both MCP transports:
+
+| Transport | Connection Model | Recommended For |
+|-----------|-----------------|-----------------|
+| **Streamable HTTP** (Recommended) | Stateless request/response | MVP, most use cases |
+| **HTTP+SSE** (Legacy) | Persistent connections | Existing SSE-based backends |
+
+**For the MVP and these use cases, Streamable HTTP (JSON mode) is recommended** because:
+- Simpler implementation (standard HTTP/2 client libraries)
+- No connection pooling complexity (see Part VIII, Section 20.7 of Comprehensive Architecture)
+- Session management via `Mcp-Session-Id` header instead of connection state
+- Better horizontal scaling (stateless gateway instances)
+
+See the [SSE vs HTTP Transport Analysis](deepsecure-sse-vs-http-transport-analysis.md) for detailed comparison.
+
 ---
 
 ## Use Case 1: AI Agent Vendor Connecting to Enterprise Tools
@@ -572,7 +589,7 @@ An enterprise platform team has built a new MCP server exposing internal capabil
 │    "id": "financial-data-api",                                              │
 │    "display_name": "Financial Data API",                                    │
 │    "endpoint": "https://internal.corp/mcp/financial",                       │
-│    "transport": "http+sse",                                                 │
+│    "transport": "streamable-http",  // Recommended (use "http+sse" for legacy)│
 │    "auth": {                                                                 │
 │      "type": "mtls",                                                        │
 │      "client_cert": "..."                                                   │
@@ -751,7 +768,8 @@ An enterprise platform team has built a new MCP server exposing internal capabil
 │  USE CASE 3             │  ┌──────────────────────────────────────────┐   │ │
 │  MCP Servers ───────────┼─>│  MCP Registry & Backend Pool              │   │ │
 │  (Staged rollout,       │  │  • Server registration (sandbox/prod)    │   │ │
-│   policy testing)       │  │  • Connection pooling                    │   │ │
+│   policy testing)       │  │  • Connection management (HTTP+SSE: pool;│   │ │
+│                         │  │    Streamable HTTP: stateless)           │   │ │
 │                         │  │  • Circuit breakers                      │   │ │
 │                         │  │  • Health monitoring                     │   │ │
 │                         │  └──────────────────────────────────────────┘   │ │
@@ -783,3 +801,4 @@ An enterprise platform team has built a new MCP server exposing internal capabil
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 0.1 | January 2026 | — | Initial draft with three use cases |
+| 0.2 | January 2026 | — | Added transport considerations; updated registration example to recommend Streamable HTTP |

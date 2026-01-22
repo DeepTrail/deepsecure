@@ -2594,6 +2594,21 @@ The Virtual MCP Server pattern introduces significant engineering challenges tha
 
 **Source**: These challenges are derived from the AI Agent Conference 2026 talk "The Virtual MCP Server Pattern: Securing Multi-Tool AI Agents at Scale" and production experience with the DeepTrail Gateway.
 
+### Transport Protocol Context
+
+> **Important**: The MCP specification defines two transports:
+> - **stdio**: For local subprocess communication
+> - **Streamable HTTP** (2025-06-18): Replaces the deprecated HTTP+SSE transport (2024-11-05)
+>
+> **Streamable HTTP is a hybrid transport** that supports:
+> - **JSON mode**: Simple request → JSON response (stateless)
+> - **SSE mode**: Request → SSE stream response (streaming)
+> - **GET + SSE**: Server-initiated push via GET endpoint
+>
+> The challenges below were identified with the older HTTP+SSE transport. **With Streamable HTTP (JSON mode)**, many connection/session challenges are simplified. See the [SSE vs HTTP Transport Analysis](deepsecure-sse-vs-http-transport-analysis.md) for detailed comparison.
+>
+> **Reference**: [MCP Specification - Transports](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports)
+
 ---
 
 ## 20. Connection & Session Management Challenges
@@ -2777,6 +2792,15 @@ class RedisSessionStore:
 | **Gateway restart** | In-memory sessions lost | Session state in Redis survives restarts |
 | **Redis unavailable** | Session lookups fail | Fallback to stateless mode (re-validate each request) |
 
+**Additional Failure Modes (MCP Spec 2025-06-18)**:
+
+| Failure Scenario | HTTP Status | Client Action |
+|-----------------|-------------|---------------|
+| **Session expired or invalid** | 404 Not Found | Client MUST re-initialize without session ID |
+| **Unsupported protocol version** | 400 Bad Request | Client must use supported version |
+| **Invalid Origin header** | 403 Forbidden | Request rejected (DNS rebinding protection) |
+| **SSE stream disconnected** | N/A | Client reconnects with `Last-Event-ID` header |
+
 **The Fail-Closed Principle (Non-Negotiable for Security)**:
 
 ```python
@@ -2799,6 +2823,174 @@ async def authorize_request(self, agent_token: str, tool_name: str) -> AuthzResu
 ```
 
 > **Never fail open.** An agent that can't reach the policy service should be unable to do anything. This is the security equivalent of "when in doubt, don't."
+
+### 20.6 MCP Spec Compliance Requirements (Streamable HTTP)
+
+Per the [MCP Specification 2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports), the Gateway must implement these requirements:
+
+#### 20.6.1 Session Management via `Mcp-Session-Id` Header
+
+Sessions are managed via HTTP headers, not connection state:
+
+```python
+class MCPSessionManager:
+    """MCP Spec compliant session management."""
+    
+    def __init__(self):
+        self.sessions: dict[str, SessionData] = {}  # session_id -> data
+    
+    async def handle_initialize(self, request: MCPRequest) -> MCPResponse:
+        """Assign session ID on initialize."""
+        # Generate cryptographically secure session ID
+        session_id = secrets.token_urlsafe(32)
+        
+        # Store session data
+        self.sessions[session_id] = SessionData(
+            agent_id=request.agent_id,
+            created_at=datetime.utcnow(),
+            capabilities=self._negotiate_capabilities(request)
+        )
+        
+        # Return session ID in response header
+        response = MCPResponse(result=InitializeResult(...))
+        response.headers["Mcp-Session-Id"] = session_id
+        return response
+    
+    async def validate_session(self, request: Request) -> SessionData:
+        """Validate session ID on subsequent requests."""
+        session_id = request.headers.get("Mcp-Session-Id")
+        
+        if not session_id:
+            raise HTTPException(400, "Mcp-Session-Id header required")
+        
+        session = self.sessions.get(session_id)
+        if not session:
+            # Spec: Return 404 for expired/invalid session
+            raise HTTPException(404, "Session not found or expired")
+        
+        if session.is_expired():
+            del self.sessions[session_id]
+            raise HTTPException(404, "Session expired")
+        
+        return session
+    
+    async def terminate_session(self, request: Request):
+        """Handle explicit session termination via DELETE."""
+        session_id = request.headers.get("Mcp-Session-Id")
+        if session_id and session_id in self.sessions:
+            del self.sessions[session_id]
+        return Response(status_code=200)
+```
+
+**Session Lifecycle**:
+
+| Event | Client Action | Server Action |
+|-------|--------------|---------------|
+| **Initialize** | POST with `initialize` method | Return `Mcp-Session-Id` header |
+| **Subsequent requests** | Include `Mcp-Session-Id` header | Validate, return 404 if invalid |
+| **Session expiry** | Receives 404 | Client re-initializes without session ID |
+| **Explicit close** | DELETE with `Mcp-Session-Id` | Remove session, return 200 (or 405) |
+
+#### 20.6.2 Protocol Version Header
+
+All HTTP requests must include the protocol version:
+
+```python
+SUPPORTED_PROTOCOL_VERSIONS = {"2025-06-18", "2025-03-26"}
+
+async def validate_protocol_version(request: Request):
+    """Validate MCP-Protocol-Version header."""
+    version = request.headers.get("MCP-Protocol-Version")
+    
+    # If header present, must be supported
+    if version and version not in SUPPORTED_PROTOCOL_VERSIONS:
+        raise HTTPException(400, f"Unsupported protocol version: {version}")
+    
+    # For backwards compatibility: if no header, assume 2025-03-26
+    return version or "2025-03-26"
+```
+
+#### 20.6.3 Origin Header Validation (DNS Rebinding Prevention)
+
+**Security Requirement**: Servers MUST validate the Origin header to prevent DNS rebinding attacks:
+
+```python
+ALLOWED_ORIGINS = {
+    "https://console.deeptrail.io",
+    "https://app.enterprise.com",
+    # For local development
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+}
+
+async def validate_origin(request: Request):
+    """Prevent DNS rebinding attacks per MCP spec."""
+    origin = request.headers.get("Origin")
+    
+    if origin and origin not in ALLOWED_ORIGINS:
+        logger.warning(f"Rejected request with invalid Origin: {origin}")
+        raise HTTPException(403, "Invalid origin")
+    
+    # No Origin header is allowed (e.g., server-to-server calls)
+    return origin
+```
+
+**Why This Matters**: Without Origin validation, an attacker could:
+1. Register a domain that initially resolves to their server
+2. Serve malicious JavaScript
+3. Change DNS to resolve to `127.0.0.1`
+4. Browser sends requests to local MCP server with attacker's cookies/context
+
+#### 20.6.4 Stream Resumability (SSE Mode Only)
+
+When using SSE responses, implement resumability via event IDs:
+
+```python
+class ResumableSSEStream:
+    """Support stream resumption per MCP spec."""
+    
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.event_counter = 0
+        self.event_buffer: deque[SSEEvent] = deque(maxlen=100)  # Buffer for replay
+    
+    async def send_event(self, event_type: str, data: dict) -> None:
+        """Send SSE event with ID for resumability."""
+        self.event_counter += 1
+        event_id = f"{self.session_id}-{self.event_counter}"
+        
+        event = SSEEvent(
+            id=event_id,
+            event=event_type,
+            data=json.dumps(data)
+        )
+        
+        # Buffer for potential replay
+        self.event_buffer.append(event)
+        
+        await self._write_event(event)
+    
+    async def resume_from(self, last_event_id: str) -> None:
+        """Replay events after client reconnection."""
+        # Parse the event counter from the ID
+        _, last_counter = last_event_id.rsplit("-", 1)
+        last_counter = int(last_counter)
+        
+        # Replay buffered events after the last received
+        for event in self.event_buffer:
+            _, event_counter = event.id.rsplit("-", 1)
+            if int(event_counter) > last_counter:
+                await self._write_event(event)
+```
+
+**Resumability Flow**:
+
+```
+1. Client receives events with IDs: evt-001, evt-002, evt-003
+2. Connection drops after evt-002
+3. Client reconnects: GET /mcp with Last-Event-ID: evt-002
+4. Server replays evt-003 and continues stream
+```
 
 ---
 
@@ -3158,4 +3350,4 @@ The recommended approach is to implement **both layers**:
 
 ---
 
-*Document Version: 5.0 (Consolidated) | Last Updated: January 2026*
+*Document Version: 5.1 (Consolidated) | Last Updated: January 2026 | Updated with MCP Spec 2025-06-18 compliance requirements*
