@@ -13,8 +13,8 @@ This document outlines three primary use cases for the Virtual MCP Server patter
 | Use Case | Persona | Core Problem | Virtual MCP Server Solution |
 |----------|---------|--------------|----------------------------|
 | **Vendor Integration** | AI Agent Vendor | N×M connections, credential handling, attribution | Single gateway connection, delegation tokens, unified audit |
-| **MCP Server Rollout** | Enterprise Platform Team | Safe exposure, policy testing, anomaly detection | Registry + sandbox + policy enforcement + circuit breakers |
 | **Agent Onboarding** | Enterprise IT + Employees | Control, delegation, accountability, revocation | IdP integration + organization registry + scoped delegation + emergency controls |
+| **MCP Server Rollout** | Enterprise Platform Team | Safe exposure, policy testing, anomaly detection | Registry + sandbox + policy enforcement + circuit breakers |
 
 ---
 
@@ -215,232 +215,7 @@ An AI agent vendor (e.g., a sales automation startup, customer support AI compan
 
 ---
 
-## Use Case 2: Enterprise Safely Rolling Out a New MCP Server
-
-### Scenario
-
-An enterprise platform team has built a new MCP server exposing internal capabilities (e.g., financial data API, customer database, internal knowledge base). Before allowing customer agents or third-party vendor agents to access it, they need to validate security policies, test access patterns, and monitor for anomalies.
-
-### The Problem
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     MCP SERVER ROLLOUT CHALLENGES                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Platform Team builds:                                                       │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │  Financial Data MCP Server                                            │   │
-│  │  • get_account_balance(account_id)                                    │   │
-│  │  • get_transaction_history(account_id, date_range)                    │   │
-│  │  • initiate_transfer(from, to, amount)  ← DANGEROUS                  │   │
-│  │  • get_customer_pii(customer_id)        ← SENSITIVE                  │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│  QUESTIONS BEFORE PRODUCTION:                                                │
-│                                                                              │
-│  1. "Which agents should be able to call initiate_transfer?"                │
-│     → Need policy framework, not just "allow all or deny all"               │
-│                                                                              │
-│  2. "What if an agent calls get_transaction_history for all accounts?"      │
-│     → Need rate limiting, scope constraints                                 │
-│                                                                              │
-│  3. "How do we detect if an agent is exfiltrating PII?"                     │
-│     → Need anomaly detection, access pattern monitoring                     │
-│                                                                              │
-│  4. "What if something goes wrong after launch?"                            │
-│     → Need circuit breaker, instant rollback                                │
-│                                                                              │
-│  5. "How do we test policies before they affect real agents?"               │
-│     → Need sandbox environment with production-like traffic                 │
-│                                                                              │
-│  WITHOUT VIRTUAL MCP SERVER:                                                 │
-│  • Deploy MCP server directly, hope nothing goes wrong                      │
-│  • Manually configure each client agent's access                            │
-│  • No unified visibility into who's calling what                            │
-│  • Rollback = "turn off the server" (breaking all agents)                   │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Stakeholder Requirements
-
-| Stakeholder | Requirements |
-|-------------|--------------|
-| **Platform Team** | Easy registration, hot-reload without restart, clear error messages |
-| **Security Team** | Policy testing before production, anomaly detection, PII monitoring |
-| **Compliance Team** | Audit trail of all access, data classification awareness |
-| **Operations Team** | Circuit breakers, health monitoring, gradual rollout capability |
-| **End Users (Agents)** | Seamless access once approved, clear error messages when denied |
-
-### Solution: Staged Rollout via Virtual MCP Server
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    STAGED MCP SERVER ROLLOUT                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  PHASE 1: REGISTRATION                                                       │
-│  ════════════════════════════════════════════════════════════════════════   │
-│                                                                              │
-│  Platform team registers MCP server with gateway:                            │
-│                                                                              │
-│  POST /mcp-registry/servers                                                  │
-│  {                                                                           │
-│    "id": "financial-data-api",                                              │
-│    "display_name": "Financial Data API",                                    │
-│    "endpoint": "https://internal.corp/mcp/financial",                       │
-│    "transport": "http+sse",                                                 │
-│    "auth": {                                                                 │
-│      "type": "mtls",                                                        │
-│      "client_cert": "..."                                                   │
-│    },                                                                        │
-│    "data_classification": "confidential",                                   │
-│    "status": "sandbox"  ← Starts in sandbox, not production                │
-│  }                                                                           │
-│                                                                              │
-│  Gateway automatically:                                                       │
-│  • Connects to server, discovers tools via tools/list                       │
-│  • Caches tool schemas with namespace prefix: financial.*                   │
-│  • Marks all tools as "sandbox only" (not visible to production agents)    │
-│                                                                              │
-│  ════════════════════════════════════════════════════════════════════════   │
-│  PHASE 2: POLICY CONFIGURATION                                               │
-│  ════════════════════════════════════════════════════════════════════════   │
-│                                                                              │
-│  Security team defines policies:                                             │
-│                                                                              │
-│  Policy 1: "Agents can read balances for accounts they're assigned"        │
-│  {                                                                           │
-│    "effect": "allow",                                                       │
-│    "resource": "financial.get_account_balance",                             │
-│    "condition": "request.params.account_id IN agent.assigned_accounts"      │
-│  }                                                                           │
-│                                                                              │
-│  Policy 2: "Only trusted agents can initiate transfers, max $10k"          │
-│  {                                                                           │
-│    "effect": "allow",                                                       │
-│    "resource": "financial.initiate_transfer",                               │
-│    "condition": "agent.trust_level == 'high'",                              │
-│    "constraints": { "amount": { "max": 10000 } }                            │
-│  }                                                                           │
-│                                                                              │
-│  Policy 3: "PII access requires explicit delegation + logging"             │
-│  {                                                                           │
-│    "effect": "allow",                                                       │
-│    "resource": "financial.get_customer_pii",                                │
-│    "condition": "delegation.includes('pii:read')",                          │
-│    "audit_level": "detailed"                                                │
-│  }                                                                           │
-│                                                                              │
-│  ════════════════════════════════════════════════════════════════════════   │
-│  PHASE 3: SANDBOX TESTING (1-2 Weeks)                                       │
-│  ════════════════════════════════════════════════════════════════════════   │
-│                                                                              │
-│  Test agents operate against sandbox:                                        │
-│                                                                              │
-│  • Real agent traffic (or simulated) flows through gateway                  │
-│  • Policies enforced, but in "log + allow" mode for testing                │
-│  • All requests logged with would-be-denied vs actually-allowed flags       │
-│                                                                              │
-│  Gateway produces analytics:                                                 │
-│  ┌────────────────────────────────────────────────────────────────────┐     │
-│  │  Sandbox Report: financial-data-api (7 days)                        │     │
-│  │                                                                     │     │
-│  │  Total requests: 12,847                                             │     │
-│  │  Unique agents: 23                                                  │     │
-│  │                                                                     │     │
-│  │  Tool Usage:                                                        │     │
-│  │  • get_account_balance:     8,234 (64%)  ✓ Normal                  │     │
-│  │  • get_transaction_history: 4,102 (32%)  ✓ Normal                  │     │
-│  │  • get_customer_pii:          487 (4%)   ⚠ Review: high volume     │     │
-│  │  • initiate_transfer:          24 (0.2%) ✓ Normal                  │     │
-│  │                                                                     │     │
-│  │  Policy Evaluation:                                                 │     │
-│  │  • Would allow: 12,234 (95.2%)                                     │     │
-│  │  • Would deny:     613 (4.8%)                                      │     │
-│  │    └── Reason breakdown:                                           │     │
-│  │        • account_id not in assigned: 412                           │     │
-│  │        • missing delegation: 156                                   │     │
-│  │        • rate limit exceeded: 45                                   │     │
-│  │                                                                     │     │
-│  │  Anomalies Detected:                                                │     │
-│  │  ⚠ Agent "analytics-bot" accessed 2,847 unique account_ids        │     │
-│  │    → Flagged for review (unusual breadth)                          │     │
-│  │                                                                     │     │
-│  └────────────────────────────────────────────────────────────────────┘     │
-│                                                                              │
-│  ════════════════════════════════════════════════════════════════════════   │
-│  PHASE 4: SECURITY REVIEW                                                    │
-│  ════════════════════════════════════════════════════════════════════════   │
-│                                                                              │
-│  Security team reviews sandbox report:                                       │
-│                                                                              │
-│  ✓ 95.2% allow rate indicates policies are not too restrictive             │
-│  ✓ 4.8% deny rate indicates policies are catching unauthorized access      │
-│  ⚠ analytics-bot needs investigation → found to be legitimate, update policy│
-│  ⚠ High PII access volume → add additional constraint (require reason)     │
-│                                                                              │
-│  Policy updates applied, re-run sandbox for 3 more days                     │
-│                                                                              │
-│  ════════════════════════════════════════════════════════════════════════   │
-│  PHASE 5: PRODUCTION PROMOTION                                               │
-│  ════════════════════════════════════════════════════════════════════════   │
-│                                                                              │
-│  PUT /mcp-registry/servers/financial-data-api                               │
-│  { "status": "production" }                                                 │
-│                                                                              │
-│  Gateway immediately:                                                        │
-│  • Makes financial.* tools visible to production agents                     │
-│  • Enforces policies in deny mode (not just log)                           │
-│  • Starts production monitoring and alerting                                │
-│                                                                              │
-│  ════════════════════════════════════════════════════════════════════════   │
-│  PHASE 6: ONGOING MONITORING + CIRCUIT BREAKER                               │
-│  ════════════════════════════════════════════════════════════════════════   │
-│                                                                              │
-│  If issues detected:                                                         │
-│                                                                              │
-│  POST /mcp-registry/servers/financial-data-api/circuit-breaker              │
-│  { "action": "open", "reason": "Suspected data exfiltration" }              │
-│                                                                              │
-│  Gateway immediately:                                                        │
-│  • Stops routing requests to financial-data-api                             │
-│  • Removes financial.* tools from all agents' tools/list                   │
-│  • Returns graceful error for in-flight requests                            │
-│  • Generates incident alert                                                  │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Results
-
-| Metric | Before Virtual MCP Server | After Virtual MCP Server |
-|--------|---------------------------|--------------------------|
-| **Time to safely expose new MCP server** | Weeks of ad-hoc testing | Structured 1-2 week sandbox with metrics |
-| **Policy confidence before go-live** | Guesswork, hope for the best | Data-driven (10,000+ test requests analyzed) |
-| **Anomaly detection** | Discovered after breach | Flagged during sandbox testing |
-| **Rollback mechanism** | "Turn off the server" (breaks all agents) | Circuit breaker (graceful denial, agents continue working with other tools) |
-| **Policy iteration cycle** | Deploy, discover issue, rollback, fix, redeploy | Test in sandbox, refine, promote |
-| **Visibility into access patterns** | Scattered logs across systems | Unified dashboard per MCP server |
-
-### Rollout Checklist
-
-- [ ] **Register** MCP server with gateway (status: sandbox)
-- [ ] **Define policies** for each tool (allow/deny conditions, constraints)
-- [ ] **Configure data classification** (public, internal, confidential, restricted)
-- [ ] **Run sandbox traffic** for minimum 7 days
-- [ ] **Review analytics** — allow/deny rates, unique agents, anomalies
-- [ ] **Address anomalies** — investigate flagged patterns, update policies
-- [ ] **Re-test** after policy changes (minimum 3 days)
-- [ ] **Security sign-off** — documented approval with policy snapshot
-- [ ] **Promote to production** — change status, enable production monitoring
-- [ ] **Set up alerts** — unusual volume, new agents, policy violations
-- [ ] **Document circuit breaker procedure** — who can trigger, escalation path
-
----
-
-## Use Case 3: Enterprise Securely Onboarding AI Agents for Employees
+## Use Case 2: Enterprise Securely Onboarding AI Agents for Employees
 
 ### Scenario
 
@@ -722,6 +497,231 @@ An enterprise IT team needs to enable employees to use AI agents (for productivi
 
 ---
 
+## Use Case 3: Enterprise Safely Rolling Out a New MCP Server
+
+### Scenario
+
+An enterprise platform team has built a new MCP server exposing internal capabilities (e.g., financial data API, customer database, internal knowledge base). Before allowing customer agents or third-party vendor agents to access it, they need to validate security policies, test access patterns, and monitor for anomalies.
+
+### The Problem
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     MCP SERVER ROLLOUT CHALLENGES                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Platform Team builds:                                                       │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  Financial Data MCP Server                                            │   │
+│  │  • get_account_balance(account_id)                                    │   │
+│  │  • get_transaction_history(account_id, date_range)                    │   │
+│  │  • initiate_transfer(from, to, amount)  ← DANGEROUS                  │   │
+│  │  • get_customer_pii(customer_id)        ← SENSITIVE                  │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  QUESTIONS BEFORE PRODUCTION:                                                │
+│                                                                              │
+│  1. "Which agents should be able to call initiate_transfer?"                │
+│     → Need policy framework, not just "allow all or deny all"               │
+│                                                                              │
+│  2. "What if an agent calls get_transaction_history for all accounts?"      │
+│     → Need rate limiting, scope constraints                                 │
+│                                                                              │
+│  3. "How do we detect if an agent is exfiltrating PII?"                     │
+│     → Need anomaly detection, access pattern monitoring                     │
+│                                                                              │
+│  4. "What if something goes wrong after launch?"                            │
+│     → Need circuit breaker, instant rollback                                │
+│                                                                              │
+│  5. "How do we test policies before they affect real agents?"               │
+│     → Need sandbox environment with production-like traffic                 │
+│                                                                              │
+│  WITHOUT VIRTUAL MCP SERVER:                                                 │
+│  • Deploy MCP server directly, hope nothing goes wrong                      │
+│  • Manually configure each client agent's access                            │
+│  • No unified visibility into who's calling what                            │
+│  • Rollback = "turn off the server" (breaking all agents)                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Stakeholder Requirements
+
+| Stakeholder | Requirements |
+|-------------|--------------|
+| **Platform Team** | Easy registration, hot-reload without restart, clear error messages |
+| **Security Team** | Policy testing before production, anomaly detection, PII monitoring |
+| **Compliance Team** | Audit trail of all access, data classification awareness |
+| **Operations Team** | Circuit breakers, health monitoring, gradual rollout capability |
+| **End Users (Agents)** | Seamless access once approved, clear error messages when denied |
+
+### Solution: Staged Rollout via Virtual MCP Server
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    STAGED MCP SERVER ROLLOUT                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PHASE 1: REGISTRATION                                                       │
+│  ════════════════════════════════════════════════════════════════════════   │
+│                                                                              │
+│  Platform team registers MCP server with gateway:                            │
+│                                                                              │
+│  POST /mcp-registry/servers                                                  │
+│  {                                                                           │
+│    "id": "financial-data-api",                                              │
+│    "display_name": "Financial Data API",                                    │
+│    "endpoint": "https://internal.corp/mcp/financial",                       │
+│    "transport": "http+sse",                                                 │
+│    "auth": {                                                                 │
+│      "type": "mtls",                                                        │
+│      "client_cert": "..."                                                   │
+│    },                                                                        │
+│    "data_classification": "confidential",                                   │
+│    "status": "sandbox"  ← Starts in sandbox, not production                │
+│  }                                                                           │
+│                                                                              │
+│  Gateway automatically:                                                       │
+│  • Connects to server, discovers tools via tools/list                       │
+│  • Caches tool schemas with namespace prefix: financial.*                   │
+│  • Marks all tools as "sandbox only" (not visible to production agents)    │
+│                                                                              │
+│  ════════════════════════════════════════════════════════════════════════   │
+│  PHASE 2: POLICY CONFIGURATION                                               │
+│  ════════════════════════════════════════════════════════════════════════   │
+│                                                                              │
+│  Security team defines policies:                                             │
+│                                                                              │
+│  Policy 1: "Agents can read balances for accounts they're assigned"        │
+│  {                                                                           │
+│    "effect": "allow",                                                       │
+│    "resource": "financial.get_account_balance",                             │
+│    "condition": "request.params.account_id IN agent.assigned_accounts"      │
+│  }                                                                           │
+│                                                                              │
+│  Policy 2: "Only trusted agents can initiate transfers, max $10k"          │
+│  {                                                                           │
+│    "effect": "allow",                                                       │
+│    "resource": "financial.initiate_transfer",                               │
+│    "condition": "agent.trust_level == 'high'",                              │
+│    "constraints": { "amount": { "max": 10000 } }                            │
+│  }                                                                           │
+│                                                                              │
+│  Policy 3: "PII access requires explicit delegation + logging"             │
+│  {                                                                           │
+│    "effect": "allow",                                                       │
+│    "resource": "financial.get_customer_pii",                                │
+│    "condition": "delegation.includes('pii:read')",                          │
+│    "audit_level": "detailed"                                                │
+│  }                                                                           │
+│                                                                              │
+│  ════════════════════════════════════════════════════════════════════════   │
+│  PHASE 3: SANDBOX TESTING (1-2 Weeks)                                       │
+│  ════════════════════════════════════════════════════════════════════════   │
+│                                                                              │
+│  Test agents operate against sandbox:                                        │
+│                                                                              │
+│  • Real agent traffic (or simulated) flows through gateway                  │
+│  • Policies enforced, but in "log + allow" mode for testing                │
+│  • All requests logged with would-be-denied vs actually-allowed flags       │
+│                                                                              │
+│  Gateway produces analytics:                                                 │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │  Sandbox Report: financial-data-api (7 days)                        │     │
+│  │                                                                     │     │
+│  │  Total requests: 12,847                                             │     │
+│  │  Unique agents: 23                                                  │     │
+│  │                                                                     │     │
+│  │  Tool Usage:                                                        │     │
+│  │  • get_account_balance:     8,234 (64%)  ✓ Normal                  │     │
+│  │  • get_transaction_history: 4,102 (32%)  ✓ Normal                  │     │
+│  │  • get_customer_pii:          487 (4%)   ⚠ Review: high volume     │     │
+│  │  • initiate_transfer:          24 (0.2%) ✓ Normal                  │     │
+│  │                                                                     │     │
+│  │  Policy Evaluation:                                                 │     │
+│  │  • Would allow: 12,234 (95.2%)                                     │     │
+│  │  • Would deny:     613 (4.8%)                                      │     │
+│  │    └── Reason breakdown:                                           │     │
+│  │        • account_id not in assigned: 412                           │     │
+│  │        • missing delegation: 156                                   │     │
+│  │        • rate limit exceeded: 45                                   │     │
+│  │                                                                     │     │
+│  │  Anomalies Detected:                                                │     │
+│  │  ⚠ Agent "analytics-bot" accessed 2,847 unique account_ids        │     │
+│  │    → Flagged for review (unusual breadth)                          │     │
+│  │                                                                     │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
+│                                                                              │
+│  ════════════════════════════════════════════════════════════════════════   │
+│  PHASE 4: SECURITY REVIEW                                                    │
+│  ════════════════════════════════════════════════════════════════════════   │
+│                                                                              │
+│  Security team reviews sandbox report:                                       │
+│                                                                              │
+│  ✓ 95.2% allow rate indicates policies are not too restrictive             │
+│  ✓ 4.8% deny rate indicates policies are catching unauthorized access      │
+│  ⚠ analytics-bot needs investigation → found to be legitimate, update policy│
+│  ⚠ High PII access volume → add additional constraint (require reason)     │
+│                                                                              │
+│  Policy updates applied, re-run sandbox for 3 more days                     │
+│                                                                              │
+│  ════════════════════════════════════════════════════════════════════════   │
+│  PHASE 5: PRODUCTION PROMOTION                                               │
+│  ════════════════════════════════════════════════════════════════════════   │
+│                                                                              │
+│  PUT /mcp-registry/servers/financial-data-api                               │
+│  { "status": "production" }                                                 │
+│                                                                              │
+│  Gateway immediately:                                                        │
+│  • Makes financial.* tools visible to production agents                     │
+│  • Enforces policies in deny mode (not just log)                           │
+│  • Starts production monitoring and alerting                                │
+│                                                                              │
+│  ════════════════════════════════════════════════════════════════════════   │
+│  PHASE 6: ONGOING MONITORING + CIRCUIT BREAKER                               │
+│  ════════════════════════════════════════════════════════════════════════   │
+│                                                                              │
+│  If issues detected:                                                         │
+│                                                                              │
+│  POST /mcp-registry/servers/financial-data-api/circuit-breaker              │
+│  { "action": "open", "reason": "Suspected data exfiltration" }              │
+│                                                                              │
+│  Gateway immediately:                                                        │
+│  • Stops routing requests to financial-data-api                             │
+│  • Removes financial.* tools from all agents' tools/list                   │
+│  • Returns graceful error for in-flight requests                            │
+│  • Generates incident alert                                                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Results
+
+| Metric | Before Virtual MCP Server | After Virtual MCP Server |
+|--------|---------------------------|--------------------------|
+| **Time to safely expose new MCP server** | Weeks of ad-hoc testing | Structured 1-2 week sandbox with metrics |
+| **Policy confidence before go-live** | Guesswork, hope for the best | Data-driven (10,000+ test requests analyzed) |
+| **Anomaly detection** | Discovered after breach | Flagged during sandbox testing |
+| **Rollback mechanism** | "Turn off the server" (breaks all agents) | Circuit breaker (graceful denial, agents continue working with other tools) |
+| **Policy iteration cycle** | Deploy, discover issue, rollback, fix, redeploy | Test in sandbox, refine, promote |
+| **Visibility into access patterns** | Scattered logs across systems | Unified dashboard per MCP server |
+
+### Rollout Checklist
+
+- [ ] **Register** MCP server with gateway (status: sandbox)
+- [ ] **Define policies** for each tool (allow/deny conditions, constraints)
+- [ ] **Configure data classification** (public, internal, confidential, restricted)
+- [ ] **Run sandbox traffic** for minimum 7 days
+- [ ] **Review analytics** — allow/deny rates, unique agents, anomalies
+- [ ] **Address anomalies** — investigate flagged patterns, update policies
+- [ ] **Re-test** after policy changes (minimum 3 days)
+- [ ] **Security sign-off** — documented approval with policy snapshot
+- [ ] **Promote to production** — change status, enable production monitoring
+- [ ] **Set up alerts** — unusual volume, new agents, policy violations
+- [ ] **Document circuit breaker procedure** — who can trigger, escalation path
+
+---
+
 ## Appendix: How the Three Use Cases Interconnect
 
 ```
@@ -740,7 +740,7 @@ An enterprise IT team needs to enable employees to use AI agents (for productivi
 │                         │  │  • tools/call routing                    │   │ │
 │                         │  └──────────────────────────────────────────┘   │ │
 │                         │                      │                          │ │
-│  USE CASE 3             │  ┌──────────────────────────────────────────┐   │ │
+│  USE CASE 2             │  ┌──────────────────────────────────────────┐   │ │
 │  Employee Agents ───────┼─>│  Governance Layer                         │   │ │
 │  (IT-approved tools,    │  │  • Policy enforcement                    │   │ │
 │   scoped delegation)    │  │  • Delegation validation                 │   │ │
@@ -748,7 +748,7 @@ An enterprise IT team needs to enable employees to use AI agents (for productivi
 │                         │  │  • Audit logging                         │   │ │
 │                         │  └──────────────────────────────────────────┘   │ │
 │                         │                      │                          │ │
-│  USE CASE 2             │  ┌──────────────────────────────────────────┐   │ │
+│  USE CASE 3             │  ┌──────────────────────────────────────────┐   │ │
 │  MCP Servers ───────────┼─>│  MCP Registry & Backend Pool              │   │ │
 │  (Staged rollout,       │  │  • Server registration (sandbox/prod)    │   │ │
 │   policy testing)       │  │  • Connection pooling                    │   │ │
