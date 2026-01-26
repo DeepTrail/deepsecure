@@ -181,6 +181,66 @@ deepsecure configure set-token  # Prompts for token
 - Split-key architecture: client holds partial key, gateway holds partial key
 - Redis used for gateway-side key storage in development
 
+## Task Breakdown Workflow
+
+When given a design document, follow this systematic approach:
+
+### Step 1: Identify Architectural Boundaries
+1. First identify the architectural boundaries (services, modules, APIs)
+2. Map data dependencies and shared state
+3. Group into parallel workstreams
+4. Within each workstream, order sequentially by dependency
+5. Output as actionable tasks with clear acceptance criteria
+
+### Step 2: Classify Dependencies
+- **PARALLEL**: Independent modules, separate services, isolated tests
+- **SEQUENTIAL**: Schema changes → migrations → code, API contracts → implementations
+- **BLOCKED**: Requires external input, design decision, or approval
+
+### Parallelization Heuristics
+- Different services/modules → Usually parallel
+- Same database table → Usually sequential
+- API producer/consumer → Producer first, then consumer
+- Tests → Can parallel after implementation
+- Documentation → Can parallel with implementation
+
+### Task Template
+Use this format for each task:
+
+| Field | Value |
+|-------|-------|
+| **ID** | WS[workstream]-[number] (e.g., WS-A1) |
+| **Description** | One sentence |
+| **Dependencies** | List task IDs or "None" |
+| **Complexity** | S (< 1hr), M (1-3hr), L (3+ hr) |
+| **Acceptance** | How to verify completion |
+| **Files** | Expected files to create/modify |
+
+### Common Workstream Patterns
+
+**SDK Feature Addition:**
+```
+WS-A: Core Implementation (deepsecure/_core/) [parallel with C, D]
+WS-B: Public API (deepsecure/client.py) [depends on A]
+WS-C: CLI Commands (deepsecure/commands/) [parallel with B]
+WS-D: Tests [parallel with B and C]
+WS-E: Examples & Docs [after B and C]
+```
+
+**Cross-Service Feature:**
+```
+WS-A: Shared Contracts (API specs, data models)
+WS-B: Control Plane (deeptrail-control/) [after A]
+WS-C: Gateway (deeptrail-gateway/) [after A, parallel with B]
+WS-D: SDK Client Updates [after B and C]
+WS-E: E2E Testing [after D]
+```
+
+### Reference Documents
+- Design template: `docs/design/DESIGN_TEMPLATE.md`
+- Task breakdown framework: `docs/TASK_BREAKDOWN.md`
+- Project rules: `.cursorrules`
+
 ## Key File Locations
 
 ### Configuration Files
