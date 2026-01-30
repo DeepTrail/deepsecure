@@ -12,3 +12,13 @@ deepsecure.egg-info/*
 assets/.DS_Store*
 cursor/*
 .DS_Store*
+.coverage
+.cursor/
+.cursorindexingignore
+.mintlifyignore
+.specstory/
+.venv/
+docs/design/internal/pdfs
+docs/design/prospects/
+generated_chat_summaries/
+ideas/

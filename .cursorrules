@@ -1,0 +1,49 @@
+# Project Context
+
+This is the DeepSecure CLI/SDK project - a security platform providing Identity-as-Code for AI agents.
+
+## Task Breakdown Protocol
+
+When breaking down designs or implementing features:
+
+1. Always identify external dependencies first (APIs, services, databases)
+2. Map data flow and ownership before implementation tasks
+3. Flag shared state that creates sequential dependencies
+4. Default to parallel unless there's explicit data dependency
+
+## Dependency Classification
+
+- **PARALLEL**: Independent modules, separate services, isolated tests
+- **SEQUENTIAL**: Schema changes → migrations → code, API contracts → implementations
+- **BLOCKED**: Requires external input, design decision, or approval
+
+## Task Granularity
+
+- Each task should be completable in a single focused session
+- Tasks should have clear acceptance criteria
+- Include test requirements in each task
+
+## DeepSecure-Specific Patterns
+
+### Service Boundaries
+- `deepsecure/` (SDK) - changes here are usually parallel with backend
+- `deeptrail-control/` (Control Plane) - API contract changes are sequential
+- `deeptrail-gateway/` (Data Plane) - can parallel with control plane unless shared state
+
+### Common Sequential Dependencies
+- Database schema → migrations → ORM models → API endpoints
+- JWT/crypto changes → both control and gateway services
+- SDK client changes → examples updates → documentation
+
+### Common Parallel Opportunities
+- Unit tests across different modules
+- CLI commands (independent of each other)
+- Framework integrations (LangChain, CrewAI)
+- Documentation updates
+
+## Code Style
+
+- Use Python type hints throughout
+- Prefer `pytest` for all tests
+- Use `ruff` for linting, `black` for formatting
+- Follow existing patterns in `deepsecure/_core/` for new core modules
