@@ -51,6 +51,10 @@ from .middleware.jwt_validation import JWTValidationMiddleware
 from .middleware.policy_enforcement import PolicyEnforcementMiddleware
 from .middleware.secret_injection import SecretInjectionMiddleware
 
+# MCP Protocol imports
+from .mcp.protocol import MCPProtocolHandler, JsonRpcErrorCode, MCPMethod
+from .mcp.handlers import handle_initialize
+
 # Configure basic logging
 logging.basicConfig(
     level=getattr(logging, config.logging.log_level.upper()),
@@ -129,6 +133,18 @@ configure_request_logging(logging_config)
 app.add_middleware(SecretInjectionMiddleware, control_plane_url=config.control_plane_url)
 app.add_middleware(PolicyEnforcementMiddleware, enforcement_mode=config.policy.enforcement_mode)
 app.add_middleware(JWTValidationMiddleware, control_plane_url=config.control_plane_url)
+
+# =============================================================================
+# MCP Protocol Handler Setup
+# =============================================================================
+
+# Initialize MCP Protocol Handler for Virtual MCP Server
+mcp_protocol_handler = MCPProtocolHandler()
+
+# Register MCP method handlers
+mcp_protocol_handler.register_handler(MCPMethod.INITIALIZE, handle_initialize)
+# TODO: Register tools/list handler (B6)
+# TODO: Register tools/call handler (B7)
 
 # Global exception handlers
 @app.exception_handler(ValidationError)
@@ -358,6 +374,109 @@ async def get_logging_config():
 async def get_active_requests():
     """For Future - Enterprise Grade: Get active request information."""
     return {"message": "For Future - Enterprise Grade"}
+
+
+# =============================================================================
+# MCP Protocol Endpoint - Virtual MCP Server Entry Point
+# =============================================================================
+
+
+@app.post("/mcp", summary="MCP JSON-RPC 2.0 endpoint")
+async def mcp_endpoint(request: Request):
+    """
+    MCP (Model Context Protocol) JSON-RPC 2.0 endpoint.
+    
+    This is the entry point for AI agents connecting to the Virtual MCP Server.
+    The endpoint handles JSON-RPC 2.0 requests for MCP methods:
+    
+    - `initialize`: Establish MCP session handshake
+    - `tools/list`: List available tools (filtered by agent permissions)
+    - `tools/call`: Execute a tool with automatic credential injection
+    
+    Authentication:
+        Requires Bearer token in Authorization header (agent session JWT).
+        JWT validation is handled by JWTValidationMiddleware.
+    
+    Request Format (JSON-RPC 2.0):
+        ```json
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "MyAgent", "version": "1.0.0"}
+            }
+        }
+        ```
+    
+    Response Format (JSON-RPC 2.0):
+        Success:
+        ```json
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {"listChanged": true}},
+                "serverInfo": {"name": "DeepTrail Virtual MCP Server", "version": "0.1.0"}
+            }
+        }
+        ```
+        
+        Error:
+        ```json
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32601, "message": "Method not found"}
+        }
+        ```
+    """
+    try:
+        # Read raw request body
+        raw_body = await request.body()
+        
+        # Extract context from request state (populated by middleware)
+        context = {
+            "agent_info": getattr(request.state, "agent_info", None),
+            "request_id": request.headers.get("X-Request-ID"),
+        }
+        
+        # Handle the MCP request
+        response = await mcp_protocol_handler.handle_request(raw_body, context=context)
+        
+        # Handle different response types
+        if response is None:
+            # Notification - no response body, return 204
+            return Response(status_code=204)
+        
+        if isinstance(response, list):
+            # Batch response
+            return JSONResponse(
+                content=[r.model_dump() for r in response],
+                media_type="application/json"
+            )
+        
+        # Single response
+        return JSONResponse(
+            content=response.model_dump(),
+            media_type="application/json"
+        )
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in MCP endpoint: {e}", exc_info=True)
+        # Return JSON-RPC internal error
+        error_response = {
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {
+                "code": JsonRpcErrorCode.INTERNAL_ERROR,
+                "message": "Internal error"
+            }
+        }
+        return JSONResponse(content=error_response, status_code=500)
 
 
 # Internal endpoint models for share storage
